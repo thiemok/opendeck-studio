@@ -1,16 +1,8 @@
-// Generates fake-deck-page.companionconfig: a Companion 5.1 page export for the fake deck's
-// three controls (row 0: key A, key B, encoder). Import it on page 1 via Import / Export.
-//   node companion-config/make-page.ts > companion-config/fake-deck-page.companionconfig
-//
-// All three controls drive the custom variable `count` (create it under Variables first):
-//   key A (0/0)  press: count + 1         text "A <count>" on red
-//   key B (0/1)  press: count - 1         text "B <count>" on blue
-//   encoder (0/2) rotate right/left: count +/- 1, push: count = 0, text "Vol <count>"
-
 const v = <T>(value: T, isExpression = false) => ({ value, isExpression })
 
+let actionCount = 0
 const setCount = (expression: string) => ({
-	id: `set-${Math.random().toString(36).slice(2, 10)}`,
+	id: `set-count-${++actionCount}`,
 	definitionId: 'custom_variable_set_value',
 	connectionId: 'internal',
 	type: 'action',

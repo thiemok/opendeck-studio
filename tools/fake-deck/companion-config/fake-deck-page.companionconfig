@@ -180,7 +180,7 @@
 								"up": [],
 								"down": [
 									{
-										"id": "set-w3zu3zp4",
+										"id": "set-count-1",
 										"definitionId": "custom_variable_set_value",
 										"connectionId": "internal",
 										"type": "action",
@@ -382,7 +382,7 @@
 								"up": [],
 								"down": [
 									{
-										"id": "set-47r8yztk",
+										"id": "set-count-2",
 										"definitionId": "custom_variable_set_value",
 										"connectionId": "internal",
 										"type": "action",
@@ -584,7 +584,7 @@
 								"up": [],
 								"down": [
 									{
-										"id": "set-oyu50vy3",
+										"id": "set-count-3",
 										"definitionId": "custom_variable_set_value",
 										"connectionId": "internal",
 										"type": "action",
@@ -607,7 +607,7 @@
 								],
 								"rotate_left": [
 									{
-										"id": "set-ygruuk7z",
+										"id": "set-count-4",
 										"definitionId": "custom_variable_set_value",
 										"connectionId": "internal",
 										"type": "action",
@@ -630,7 +630,7 @@
 								],
 								"rotate_right": [
 									{
-										"id": "set-kpop1wsx",
+										"id": "set-count-5",
 										"definitionId": "custom_variable_set_value",
 										"connectionId": "internal",
 										"type": "action",

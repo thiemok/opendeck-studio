@@ -1,7 +1,15 @@
-// Connection lifecycle for one fake deck: connect, handshake, register, keepalive, reconnect.
 import { EventEmitter } from 'node:events'
 import net from 'node:net'
-import { buildLayoutManifest, formatLine, parseCaps, parseLine, type Message } from './protocol.ts'
+import { setTimeout as sleep } from 'node:timers/promises'
+import {
+	buildLayoutManifest,
+	formatLine,
+	parseCaps,
+	parseLine,
+	type LineArgs,
+	type Message,
+	type Params,
+} from './protocol.ts'
 
 export interface SessionOptions {
 	host: string
@@ -9,14 +17,26 @@ export interface SessionOptions {
 	deviceId: string
 	keySize: number
 	bitmapFormat: 'rgb' | 'png'
-	/** Send our own PING and run the silence watchdog. Off = only a socket close ends the session. */
 	ping: boolean
 	pingIntervalMs: number
 	silenceTimeoutMs: number
 	backoffInitialMs: number
 	backoffMaxMs: number
-	/** How long a key press is held before the release is sent. */
 	holdMs: number
+}
+
+interface SessionEvents {
+	log: [line: string]
+	line: [direction: 'in' | 'out', line: string]
+	keyState: [params: Params]
+	clear: []
+	fatal: [message: string]
+}
+
+/** CAPS (and with it NONSQUARE) only exists from Satellite API 1.10. An unparsable version counts as too old. */
+function hasCaps(apiVersion: string): boolean {
+	const [major, minor] = apiVersion.split('.').map(Number)
+	return major > 1 || (major === 1 && minor >= 10)
 }
 
 export const DEFAULT_OPTIONS: Omit<SessionOptions, 'host' | 'deviceId'> = {
@@ -33,11 +53,7 @@ export const DEFAULT_OPTIONS: Omit<SessionOptions, 'host' | 'deviceId'> = {
 
 export type SessionState = 'idle' | 'connecting' | 'handshake' | 'registered' | 'backoff' | 'stopped'
 
-/**
- * Events: `log` (human-readable line), `line` (direction, raw protocol line),
- * `keyState` (params), `clear`, `fatal` (message).
- */
-export class FakeDeckSession extends EventEmitter {
+export class FakeDeckSession extends EventEmitter<SessionEvents> {
 	readonly opts: SessionOptions
 	state: SessionState = 'idle'
 	#socket: net.Socket | null = null
@@ -57,7 +73,6 @@ export class FakeDeckSession extends EventEmitter {
 		this.#connect()
 	}
 
-	/** Send QUIT (when connected) and stop for good. */
 	stop(): void {
 		if (this.state === 'stopped') return
 		const socket = this.#socket
@@ -70,18 +85,19 @@ export class FakeDeckSession extends EventEmitter {
 		this.#socket = null
 	}
 
-	press(controlId: string): Promise<void> {
-		this.#send('KEY-PRESS', { DEVICEID: this.opts.deviceId, CONTROLID: controlId, PRESSED: true })
-		return new Promise((resolve) =>
-			setTimeout(() => {
-				this.#send('KEY-PRESS', { DEVICEID: this.opts.deviceId, CONTROLID: controlId, PRESSED: false })
-				resolve()
-			}, this.opts.holdMs)
-		)
+	async press(controlId: string): Promise<void> {
+		const control = this.#controlArgs(controlId)
+		this.#send('KEY-PRESS', { ...control, PRESSED: true })
+		await sleep(this.opts.holdMs)
+		this.#send('KEY-PRESS', { ...control, PRESSED: false })
 	}
 
 	rotate(controlId: string, direction: number): void {
-		this.#send('KEY-ROTATE', { DEVICEID: this.opts.deviceId, CONTROLID: controlId, DIRECTION: direction })
+		this.#send('KEY-ROTATE', { ...this.#controlArgs(controlId), DIRECTION: direction })
+	}
+
+	#controlArgs(controlId: string): LineArgs {
+		return { DEVICEID: this.opts.deviceId, CONTROLID: controlId }
 	}
 
 	#setState(state: SessionState): void {
@@ -134,9 +150,7 @@ export class FakeDeckSession extends EventEmitter {
 			case 'BEGIN': {
 				const api = String(msg.params.ApiVersion ?? '')
 				this.emit('log', `Companion ${msg.params.CompanionVersion ?? '?'} ApiVersion ${api}`)
-				const [major, minor] = api.split('.').map(Number)
-				// CAPS (and with it NONSQUARE) only exists from API 1.10; nothing older can host this layout.
-				if (!(major > 1 || (major === 1 && minor >= 10))) this.#fatal(`ApiVersion ${api} has no NONSQUARE; needs a current Companion`)
+				if (!hasCaps(api)) this.#fatal(`ApiVersion ${api} has no NONSQUARE; needs a current Companion`)
 				break
 			}
 			case 'CAPS': {
@@ -191,7 +205,7 @@ export class FakeDeckSession extends EventEmitter {
 		this.emit('fatal', message)
 	}
 
-	#send(command: string, args: Record<string, string | number | boolean>): void {
+	#send(command: string, args: LineArgs): void {
 		this.#sendRaw(formatLine(command, args))
 	}
 

@@ -1,4 +1,3 @@
-// Turns KEY-STATE bitmaps into PNG files per control, plus a 1-bit preview for the 128x64 mono OLED.
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PNG } from 'pngjs'
@@ -15,7 +14,6 @@ interface Size {
 	h: number
 }
 
-/** Threshold for the 1-bit OLED preview (luma 0-255). */
 const MONO_THRESHOLD = 128
 
 const fileName = (controlId: string) => controlId.replace(/[^a-zA-Z0-9-]/g, '-')
@@ -50,7 +48,11 @@ function decodeBitmap(bitmap: string, size: Size): Decoded {
 			return { ok: false, reason: `png is ${png.width}x${png.height}, expected ${size.w}x${size.h}` }
 		}
 		const rgb = Buffer.alloc(expected)
-		for (let i = 0, j = 0; j < png.data.length; i += 3, j += 4) rgb.set(png.data.subarray(j, j + 3), i)
+		for (let i = 0, j = 0; j < png.data.length; i += 3, j += 4) {
+			rgb[i] = png.data[j]
+			rgb[i + 1] = png.data[j + 1]
+			rgb[i + 2] = png.data[j + 2]
+		}
 		return { ok: true, rgb, format: 'png' }
 	}
 	if (bitmap.startsWith('data:')) {
@@ -100,7 +102,7 @@ export class ImageSink {
 			return
 		}
 		log(
-			`[${controlId}] bitmap ${decoded.format} ${size.w}x${size.h} raw=${size.w * size.h * 3} wire=${params.BITMAP.length}`
+			`[${controlId}] bitmap ${decoded.format} ${size.w}x${size.h} raw=${decoded.rgb.length} wire=${params.BITMAP.length}`
 		)
 		this.#write(controlId, decoded.rgb)
 	}

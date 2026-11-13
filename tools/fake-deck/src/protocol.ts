@@ -1,8 +1,6 @@
-// Companion Satellite line protocol: formatting, parsing, capabilities and layout manifest.
-// Pure functions only; no network or file I/O lives here.
-
 export type ParamValue = string | true
 export type Params = Record<string, ParamValue>
+export type LineArgs = Record<string, string | number | boolean>
 
 export interface Message {
 	command: string
@@ -19,7 +17,6 @@ export interface Caps {
 	bitmapFormats: string[]
 }
 
-/** Control IDs used in the layout manifest: two LCD keys and one encoder/OLED control in one row. */
 export const CONTROL_IDS = {
 	key0: '0/0',
 	key1: '0/1',
@@ -30,8 +27,7 @@ export const ENCODER_SIZE = { w: 128, h: 64 } as const
 
 const escapeValue = (value: string): string => value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 
-/** Format one protocol line. Strings are quoted, booleans become 0/1, numbers stay bare. */
-export function formatLine(command: string, args: Record<string, string | number | boolean> = {}): string {
+export function formatLine(command: string, args: LineArgs = {}): string {
 	const chunks = [command]
 	for (const [key, value] of Object.entries(args)) {
 		if (typeof value === 'boolean') chunks.push(`${key}=${value ? 1 : 0}`)
@@ -107,7 +103,6 @@ export function parseCaps(params: Params): Caps {
 	}
 }
 
-/** Base64 JSON layout manifest: two keys of `keySize` square pixels and one 128x64 encoder/OLED with text. */
 export function buildLayoutManifest(opts: { keySize: number }): string {
 	const manifest = {
 		stylePresets: {
