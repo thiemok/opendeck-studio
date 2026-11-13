@@ -1,4 +1,3 @@
-// CLI entry: run a fake deck against Companion, with a REPL for key and encoder input.
 import { appendFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
@@ -7,28 +6,36 @@ import { ImageSink } from './images.ts'
 import { CONTROL_IDS } from './protocol.ts'
 import { DEFAULT_OPTIONS, FakeDeckSession } from './session.ts'
 
+const CLI_DEFAULTS = {
+	host: '127.0.0.1',
+	port: String(DEFAULT_OPTIONS.port),
+	keySize: String(DEFAULT_OPTIONS.keySize),
+	format: DEFAULT_OPTIONS.bitmapFormat,
+	deviceId: 'fake-deck-01',
+	out: 'out',
+}
+
 const HELP = `Usage: node src/main.ts [options]
 
 Registers a fake deck (two LCD keys + one 128x64 encoder/OLED) with Companion over Satellite TCP.
 
 Options:
-  --host <host>         Companion host (default: 127.0.0.1)
-  --port <port>         Satellite TCP port (default: ${DEFAULT_OPTIONS.port})
-  --key-size <px>       Square key bitmap size (default: ${DEFAULT_OPTIONS.keySize})
-  --format <rgb|png>    Requested bitmap format (default: rgb)
-  --device-id <id>      Satellite DEVICEID (default: fake-deck-01)
-  --out <dir>           Output directory for PNGs and protocol.log (default: out)
+  --host <host>         Companion host (default: ${CLI_DEFAULTS.host})
+  --port <port>         Satellite TCP port (default: ${CLI_DEFAULTS.port})
+  --key-size <px>       Square key bitmap size (default: ${CLI_DEFAULTS.keySize})
+  --format <rgb|png>    Requested bitmap format (default: ${CLI_DEFAULTS.format})
+  --device-id <id>      Satellite DEVICEID (default: ${CLI_DEFAULTS.deviceId})
+  --out <dir>           Output directory for PNGs and protocol.log (default: ${CLI_DEFAULTS.out})
   --no-ping             Send no PING and disable the silence watchdog (measures the server idle timeout)
   -h, --help            Show this help
 
 REPL commands:
   press <0|1>           Press and release LCD key 0 or 1
   push                  Press and release the encoder
-  rotate <+n|-n>        Rotate the encoder by n steps
+  rotate <+n|-n>        Rotate the encoder by n detents (one KEY-ROTATE DIRECTION=±1 each)
   quit                  Send QUIT and exit
 `
 
-/** Run one REPL command against a session. Returns false for `quit`. */
 export async function executeCommand(session: FakeDeckSession, input: string): Promise<boolean> {
 	const [cmd, arg] = input.trim().split(/\s+/)
 	switch (cmd) {
@@ -50,7 +57,8 @@ export async function executeCommand(session: FakeDeckSession, input: string): P
 				console.log('usage: rotate <+n|-n>')
 				break
 			}
-			session.rotate(CONTROL_IDS.encoder, steps)
+			// One KEY-ROTATE per detent: Companion runs the rotate action once per message, whatever DIRECTION's magnitude.
+			for (let i = 0; i < Math.abs(steps); i++) session.rotate(CONTROL_IDS.encoder, Math.sign(steps))
 			break
 		}
 		case 'quit':
@@ -64,19 +72,18 @@ export async function executeCommand(session: FakeDeckSession, input: string): P
 	return true
 }
 
-/** Keep the protocol log readable: replace bitmap payloads with their size. */
 const summarise = (line: string) =>
 	line.replace(/BITMAP="([^"]*)"/, (_m, b64: string) => `BITMAP=<${b64.length} bytes${b64.startsWith('data:') ? ' data-url' : ''}>`)
 
 function main(): void {
 	const { values } = parseArgs({
 		options: {
-			host: { type: 'string', default: '127.0.0.1' },
-			port: { type: 'string', default: String(DEFAULT_OPTIONS.port) },
-			'key-size': { type: 'string', default: String(DEFAULT_OPTIONS.keySize) },
-			format: { type: 'string', default: 'rgb' },
-			'device-id': { type: 'string', default: 'fake-deck-01' },
-			out: { type: 'string', default: 'out' },
+			host: { type: 'string', default: CLI_DEFAULTS.host },
+			port: { type: 'string', default: CLI_DEFAULTS.port },
+			'key-size': { type: 'string', default: CLI_DEFAULTS.keySize },
+			format: { type: 'string', default: CLI_DEFAULTS.format },
+			'device-id': { type: 'string', default: CLI_DEFAULTS.deviceId },
+			out: { type: 'string', default: CLI_DEFAULTS.out },
 			'no-ping': { type: 'boolean', default: false },
 			help: { type: 'boolean', short: 'h', default: false },
 		},

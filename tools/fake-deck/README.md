@@ -46,7 +46,7 @@ npm start -- --port 26622     # same as: node src/main.ts --port 26622
 ```text
 deck> press 0        # press + release key A
 deck> press 1        # key B
-deck> rotate +1      # encoder, n steps (+/-)
+deck> rotate +1      # encoder, n detents (+/-), one KEY-ROTATE DIRECTION=±1 each
 deck> push           # press + release encoder
 deck> quit           # sends QUIT
 ```
