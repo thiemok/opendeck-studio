@@ -1,0 +1,23 @@
+{
+  "name": "fake-deck",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Desktop fake deck that registers with Bitfocus Companion over the Satellite protocol (P0 protocol spike).",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node src/main.ts",
+    "test": "node --test test/",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "pngjs": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@types/pngjs": "^6.0.5",
+    "typescript": "^5.9.3"
+  }
+}
