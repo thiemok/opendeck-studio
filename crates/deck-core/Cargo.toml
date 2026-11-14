@@ -7,3 +7,4 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+embedded-storage = "0.3.2"

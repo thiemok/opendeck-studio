@@ -64,6 +64,11 @@ impl<'b> LineFramer<'b> {
         }
     }
 
+    /// Whether no partial line is buffered, i.e. the next byte starts a new line.
+    pub fn at_line_start(&self) -> bool {
+        self.len == 0 && !self.discarding
+    }
+
     /// Drops any partial line, e.g. after the connection closes.
     pub fn reset(&mut self) {
         self.len = 0;
@@ -320,6 +325,17 @@ mod tests {
         let mut framer = LineFramer::new(&mut buf);
         let got = frames(&mut framer, &[b"0123456789", b"abcdef\nPING 1\n"]);
         assert_eq!(got, vec![Err(()), Ok(b"PING 1".to_vec())]);
+    }
+
+    #[test]
+    fn framer_reports_whether_a_line_is_in_progress() {
+        let mut buf = [0u8; 64];
+        let mut framer = LineFramer::new(&mut buf);
+        assert!(framer.at_line_start());
+        frames(&mut framer, &[b"KEY-ST"]);
+        assert!(!framer.at_line_start());
+        frames(&mut framer, &[b"ATE\n"]);
+        assert!(framer.at_line_start());
     }
 
     #[test]

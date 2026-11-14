@@ -28,7 +28,7 @@ pub fn valid_host(host: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HostConfig {
     host: [u8; MAX_HOST_LEN],
     host_len: u8,
@@ -95,6 +95,134 @@ fn crc32(data: &[u8]) -> u32 {
         }
     }
     !crc
+}
+
+/// Loads, saves and clears the record at the start of a NOR flash region (the
+/// `deckcfg` partition on the device). Saving is erase-then-write of one sector:
+/// if a write is interrupted, the record reads as "no host" and the operator
+/// types the host again (KTD14).
+pub mod store {
+    use super::{HostConfig, RECORD_LEN};
+    use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
+
+    /// The saved host, or `None` for a blank or unreadable record.
+    pub fn load<F: ReadNorFlash>(flash: &mut F) -> Option<HostConfig> {
+        let mut buf = [0u8; PADDED_LEN];
+        flash.read(0, &mut buf[..padded_len(F::READ_SIZE)]).ok()?;
+        HostConfig::decode(&buf)
+    }
+
+    pub fn save<F: NorFlash>(flash: &mut F, config: &HostConfig) -> Result<(), F::Error> {
+        clear(flash)?;
+        let mut buf = [0xffu8; PADDED_LEN];
+        buf[..RECORD_LEN].copy_from_slice(&config.encode());
+        flash.write(0, &buf[..padded_len(F::WRITE_SIZE)])
+    }
+
+    pub fn clear<F: NorFlash>(flash: &mut F) -> Result<(), F::Error> {
+        flash.erase(0, F::ERASE_SIZE as u32)
+    }
+
+    /// Room for the record rounded up to any read/write granularity up to 32 bytes.
+    const PADDED_LEN: usize = RECORD_LEN.div_ceil(32) * 32;
+
+    /// The record length rounded up to the flash's access granularity.
+    fn padded_len(granularity: usize) -> usize {
+        RECORD_LEN.div_ceil(granularity) * granularity
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use core::convert::Infallible;
+        use embedded_storage::nor_flash::ErrorType;
+
+        /// RAM flash with NOR rules: erase sets 0xFF, writes can only clear bits.
+        struct RamFlash(Vec<u8>);
+
+        impl RamFlash {
+            fn blank() -> Self {
+                Self(vec![0xff; 2 * 4096])
+            }
+        }
+
+        impl ErrorType for RamFlash {
+            type Error = Infallible;
+        }
+
+        impl ReadNorFlash for RamFlash {
+            const READ_SIZE: usize = 1;
+            fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Infallible> {
+                let o = offset as usize;
+                bytes.copy_from_slice(&self.0[o..o + bytes.len()]);
+                Ok(())
+            }
+            fn capacity(&self) -> usize {
+                self.0.len()
+            }
+        }
+
+        impl NorFlash for RamFlash {
+            const WRITE_SIZE: usize = 4;
+            const ERASE_SIZE: usize = 4096;
+            fn erase(&mut self, from: u32, to: u32) -> Result<(), Infallible> {
+                assert_eq!(from as usize % Self::ERASE_SIZE, 0);
+                assert_eq!(to as usize % Self::ERASE_SIZE, 0);
+                self.0[from as usize..to as usize].fill(0xff);
+                Ok(())
+            }
+            fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Infallible> {
+                assert_eq!(offset as usize % Self::WRITE_SIZE, 0);
+                assert_eq!(bytes.len() % Self::WRITE_SIZE, 0);
+                for (cell, &b) in self.0[offset as usize..].iter_mut().zip(bytes) {
+                    *cell &= b;
+                }
+                Ok(())
+            }
+        }
+
+        fn host(name: &str, port: u16) -> HostConfig {
+            HostConfig::new(name, port).unwrap()
+        }
+
+        #[test]
+        fn save_then_load_returns_the_same_host() {
+            let mut flash = RamFlash::blank();
+            save(&mut flash, &host("companion.lan", 16700)).unwrap();
+            let back = load(&mut flash).unwrap();
+            assert_eq!((back.host(), back.port), ("companion.lan", 16700));
+        }
+
+        #[test]
+        fn clear_then_load_returns_none() {
+            let mut flash = RamFlash::blank();
+            save(&mut flash, &host("10.0.0.2", 16622)).unwrap();
+            clear(&mut flash).unwrap();
+            assert_eq!(load(&mut flash), None);
+        }
+
+        #[test]
+        fn blank_flash_loads_as_none() {
+            assert_eq!(load(&mut RamFlash::blank()), None);
+        }
+
+        #[test]
+        fn a_second_save_replaces_the_first() {
+            let mut flash = RamFlash::blank();
+            save(&mut flash, &host("first.lan", 1)).unwrap();
+            save(&mut flash, &host("second.lan", 2)).unwrap();
+            let back = load(&mut flash).unwrap();
+            assert_eq!((back.host(), back.port), ("second.lan", 2));
+        }
+
+        #[test]
+        fn a_corrupted_record_loads_as_none() {
+            let mut flash = RamFlash::blank();
+            save(&mut flash, &host("10.0.0.2", 16622)).unwrap();
+            flash.0[12] ^= 0x04;
+            assert_eq!(load(&mut flash), None);
+        }
+    }
 }
 
 #[cfg(test)]
