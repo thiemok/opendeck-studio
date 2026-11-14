@@ -1,0 +1,7 @@
+# Firmware builds use espup's `esp` Xtensa toolchain, not the root's stable pin.
+# mise sets RUSTUP_TOOLCHAIN for its Rust, which would override rust-toolchain.toml,
+# so pin it back to `esp` here and load espup's environment (KTD19).
+
+[env]
+RUSTUP_TOOLCHAIN = "esp"
+_.source = "{{config_root}}/../.esp/export-esp.sh"

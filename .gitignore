@@ -1,0 +1,9 @@
+# Rust build output (host workspace and firmware)
+/target/
+/firmware/target/
+
+# espup's generated environment file (mise run esp-toolchain)
+/.esp/
+
+# Build-time Wi-Fi credentials (KTD11)
+/firmware/wifi.env

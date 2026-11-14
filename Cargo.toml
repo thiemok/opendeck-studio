@@ -1,0 +1,10 @@
+# Host workspace: pure, host-tested crates only (KTD10).
+# `firmware/` is its own cargo root (Xtensa target, build-std), so it stays out of here.
+[workspace]
+resolver = "3"
+members = ["crates/deck-core"]
+exclude = ["firmware"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.95"

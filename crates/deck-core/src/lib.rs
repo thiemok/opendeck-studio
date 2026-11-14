@@ -1,0 +1,6 @@
+//! Pure deck logic shared by the firmware and tested on the host.
+//!
+//! Nothing here depends on esp or embassy crates. Time arrives as milliseconds
+//! and flash through the `embedded-storage` traits, so `cargo test` runs it all
+//! on a desktop toolchain.
+#![cfg_attr(not(test), no_std)]
