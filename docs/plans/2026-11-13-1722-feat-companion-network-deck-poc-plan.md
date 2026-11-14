@@ -14,8 +14,8 @@ execution: code
 
 - **Objective:** A self-built deck works as one Bitfocus Companion surface over Wi-Fi. Every piece of hardware on hand has been proven in it: two LCD keys, a rotary encoder with menu buttons, and an OLED. Enough has been learned to choose the final device shape and to start the Ethernet/PoE stages.
 - **Product authority:** This plan covers the proof-of-concept stages (P0–P4 below). The final device shape, Ethernet/PoE and scaling toward ~32 keys are context only. Each gets its own plan once the PoC is done.
-- **Open blockers:** None. Hardware identification and the firmware framework choice are part of the stages themselves.
-- **Planning scope:** Implementation planning below covers P0 (R14) only. P1–P4 are planned one stage at a time, each enriching this file once the previous stage's findings are in.
+- **Open blockers:** None. The board, firmware framework and key module were settled in P1 (see `docs/notes/board-and-framework-decision.md`). The OLED/encoder module is identified in P3.
+- **Planning scope:** Implementation planning below covers P0 (R14) only. P1 (R15) was a spec-sheet decision and needed no implementation plan. P2–P4 are planned one stage at a time, each enriching this file once the previous stage's findings are in.
 - **Authority:** The Product Contract wins on behaviour, the Planning Contract's KTDs win on mechanism, and units override neither.
 - **Execution profile (P0):** A desktop-only spike, with a TypeScript (Node) fake-deck client and the latest Companion in a container on the Linux desktop. No hardware is involved.
 - **Stop conditions (P0):** Stop and report back if the latest Companion cannot register a layout-manifest surface with two keys and one encoder control. That would mean R2 cannot be met through the Satellite protocol as planned.
@@ -32,7 +32,7 @@ Build a microcontroller-based deck that connects to Bitfocus Companion as a netw
 
 The Elgato Stream Deck Studio is the reference: a networked, PoE-powered control surface with LCD keys and push-dials. Elgato's software stack doesn't fit this setup. Every desktop host runs Linux, and Elgato's Stream Deck app only exists for Windows and macOS. The Studio's network protocol is undocumented, and posing as an Elgato device is fragile and depends on Elgato's goodwill.
 
-The parts on hand are a Feather ESP32, a Pico 2 W, a Pi Zero 2 W, two Waveshare ST7735 LCD key modules, and a 1.3" I²C OLED module with a rotary encoder and menu buttons. Nothing has been built yet, and the key and OLED modules aren't fully identified. The intended use is mostly dev work, but nothing is fixed. The deck must be general-purpose rather than tuned to one workflow.
+The parts on hand are a Feather ESP32 V2, a Pico 2 W, a Pi Zero 2 W, two Waveshare 0.85" ScreenKey Module B keys (ST7735, 128×128), and a 1.3" I²C OLED module with a rotary encoder and menu buttons. Nothing has been built yet, and the OLED module isn't fully identified. The intended use is mostly dev work, but nothing is fixed. The deck must be general-purpose rather than tuned to one workflow.
 
 ### Key Decisions
 
@@ -40,7 +40,10 @@ The parts on hand are a Feather ESP32, a Pico 2 W, a Pi Zero 2 W, two Waveshare 
 - **The deck is a pure network surface; Companion runs on a Linux desktop or server.** Companion can only run shell actions on the machine it runs on, so desktop-side dev actions work directly. (session-settled: user-directed — chosen over running Companion inside the deck on the Pi Zero 2 W: desktop actions would need extra plumbing.) Governs R1, R4.
 - **The OLED module is mode-switched.** It is normally a Companion control and becomes a local device menu on a menu-button action. (session-settled: user-directed — chosen over Companion-only or local-menu-only.) Governs R8, R9, R10.
 - **The deck runs on a microcontroller, not a Linux board.** It matches the appliance-style end goal: instant boot, low power and a proven PoE path. A desktop "fake deck" spike provides the protocol learning first. (session-settled: user-directed — chosen over a Pi Zero 2 W as the deck's brain, and over a Linux reference implementation later ported to a microcontroller.) Governs R14, R15.
-- **Compiled firmware with OTA updates; no MicroPython.** OTA keeps flashing out of the iteration loop. The framework is chosen in planning (candidates: ESP-IDF, Arduino/PlatformIO, Zephyr, Rust embassy/esp-hal). Governs R12, R13.
+- **Compiled firmware with OTA updates; no MicroPython.** OTA keeps flashing out of the iteration loop. Governs R12, R13.
+- **The deck board is the Feather ESP32 V2.** It is the only candidate with mature OTA, it has a native Ethernet MAC on the same chip family as ready-made PoE boards, and its 2 MB PSRAM holds 128×128 image lines with room to spare. (session-settled: user-directed — chosen over the Pico 2 W: OTA on the RP2350 has no official flow, and its wired path is W5500 only.) Governs R15, R16.
+- **Firmware is Rust no_std: `esp-hal` + embassy, `esp-radio` for Wi-Fi, `esp-bootloader-esp-idf` for A/B OTA.** It is pure Rust with async throughout, and it is the stack Espressif funds. The accepted costs: pinned crate versions through pre-1.0 API churn, our own OTA rollback and upload endpoint, and community crates or W5500 for Ethernet. Rust std (`esp-idf-svc`) on the same board is the fallback. (session-settled: user-directed — chosen over Rust std, whose bindings are community-maintained and whose peripherals are mostly blocking, and over Arduino-ESP32 3.x on PlatformIO, ESP-IDF in C and Zephyr.) Governs R12, R13, R16.
+- **P1 decides from spec sheets, without bench tests.** Both boards are on hand and switching later is cheap, so P2 becomes the first hardware proof. (session-settled: user-directed — chosen over bench-testing both boards for toolchain, Wi-Fi/Satellite, OTA and an ST7735 key.) Governs R15.
 - **The board comparison comes before deck-feature work.** (session-settled: user-directed — chosen over building a single key first and comparing boards afterwards: the basic setup would be done twice.) Governs R15, R16.
 - **The final shape is decided after the PoC, not now.** Rack mounting is dropped. Key count (~32 eventually), display technology and enclosure stay open until the PoC has shown what works. (session-settled: user-directed — chosen over fixing the final form now.) Governs R18.
 
@@ -80,8 +83,8 @@ The parts on hand are a Feather ESP32, a Pico 2 W, a Pi Zero 2 W, two Waveshare 
 **PoC stages and outcomes**
 
 - R14. P0, protocol spike: a desktop "fake deck" script registers with Companion, shows key images and sends presses. Done when the Satellite protocol's key/encoder/image behaviour is understood well enough to implement in firmware.
-- R15. P1, board comparison: the Pico 2 W and the Feather ESP32 are each tested for toolchain, Wi-Fi plus a Satellite connection, an OTA proof of life, and driving one ST7735 key, after the key module's controller and pinout are identified. One board is chosen with written reasons, which also record each board's path to wired Ethernet/PoE (native MAC vs SPI module, available PoE boards) and its headroom for more keys (free RAM after the Wi-Fi/OTA stack, spare SPI chip-select/GPIO pins).
-- R16. P2, first key on the chosen board: one LCD key works end-to-end with Companion (R5, R6). The key module's model and pinout are documented.
+- R15. P1, board and framework decision: the key module's controller and pinout are identified, and the Pico 2 W and Feather ESP32 are compared from spec sheets on OTA, Wi-Fi plus Satellite, ST7735 support and toolchain. A written decision names one board and one firmware framework with reasons. It also records each board's path to wired Ethernet/PoE and its headroom for more keys. Done in `docs/notes/board-and-framework-decision.md`.
+- R16. P2, first key on the chosen board: one LCD key works end-to-end with Companion (R5, R6), on the firmware stack chosen in R15.
 - R17. P3, full PoC: both keys, the encoder and the OLED with its local menu work together as one surface (R2–R10). The OLED/encoder module is identified and documented.
 - R18. P4, OTA and wrap-up: OTA works on the full PoC (R12, R13), and a written findings note feeds the final-shape decision (key count, display technology, enclosure, Ethernet/PoE hardware). The note records measured image memory per key, the time to refresh all keys after a Companion page change, and SPI redraw time per display, extrapolated to ~32 keys for both the per-key and shared-panel options.
 
@@ -89,7 +92,7 @@ The parts on hand are a Feather ESP32, a Pico 2 W, a Pi Zero 2 W, two Waveshare 
 
 ```mermaid
 flowchart TB
-  P0[P0 Protocol spike on desktop] --> P1[P1 Pico 2 W vs ESP32 comparison]
+  P0[P0 Protocol spike on desktop] --> P1[P1 Board + framework decision]
   P1 --> P2[P2 First key on chosen board]
   P2 --> P3[P3 Full PoC: 2 keys + encoder + OLED menu]
   P3 --> P4[P4 OTA + findings]
@@ -155,7 +158,9 @@ Each stage is defined by its requirement (R14–R18). The stages after the decis
 ### Dependencies / Assumptions
 
 - A current Companion release is available on a Linux host, and the PoC is tested against the latest stable release only. Per the Satellite API docs, layout manifests (separate LCD key and encoder/OLED controls with their own bitmap sizes) need Companion 4.2+ (API 1.9), and non-square bitmaps need Companion 5.0+ (API 1.11). Older versions are not tested.
-- The Waveshare key modules are SPI ST7735 displays with a key switch, and the OLED module is an I²C display plus encoder and buttons. Both are assumptions until identified: the key module in P1, the OLED module in P3.
+- The key modules are Waveshare 0.85" ScreenKey Module B: ST7735 over SPI, 128×128, 3.3 V, with a mechanical switch (identified in P1). The KEY output's polarity and pull-up needs and the panel offset are checked on the bench in P2.
+- The OLED module is an I²C display plus encoder and buttons. This is an assumption until it is identified in P3.
+- The Rust no_std crates (`esp-hal`, `esp-radio`, `esp-bootloader-esp-idf`) are pinned per stage. `esp-radio` is pre-1.0, so upgrades may need migration work.
 - The Pi Zero 2 W is not part of the deck. It may serve as a spare headless Companion host or test bench.
 - The LAN is trusted for Satellite traffic, which is unauthenticated. Only OTA needs protection (R13).
 
@@ -167,14 +172,15 @@ Each stage is defined by its requirement (R14–R18). The stages after the decis
 
 **Deferred to Planning**
 
-- Which firmware framework best meets the OTA requirement on each candidate board, and whether that alone decides P1. OTA is more mature on the ESP32.
 - How the operator sets the Companion host and Wi-Fi credentials the first time (R4, R10): captive portal, serial, mDNS discovery, or a mix.
-- Which Satellite API version and image sizes/formats to target, given memory limits on the chosen board.
+- Which key bitmap size to request (native 128×128 or a smaller preset) and whether to use `png`, given the Feather V2's PSRAM (P2).
+- How OTA rollback is confirmed (e.g. the new image is marked valid only after `ADD-DEVICE OK`) and how builds are uploaded behind the R13 password (P4).
 - Which menu-button action opens the local menu (e.g. long press vs a dedicated button), once the module's buttons are known.
 - What measurement backs the responsiveness criterion, if one is needed.
 
 ### Sources / Research
 
+- P1 board, framework and key module decision, with its own sources: `docs/notes/board-and-framework-decision.md`
 - Companion Satellite API: https://companion.free/for-developers/Satellite-API and https://companion.free/user-guide/remote_control/satellite
 - Companion 3.4 release (Stream Deck Studio support, surfaces over 32 keys; background only, below the version baseline): https://newreleases.io/project/github/bitfocus/companion/release/v3.4.0
 - Companion module development: https://companion.free/for-developers/setting-up-developer-environment
@@ -187,7 +193,7 @@ Each stage is defined by its requirement (R14–R18). The stages after the decis
 
 Product Contract preservation: changed: Dependencies / Assumptions (Companion version). P0 now tests against the latest Companion only and no longer confirms a minimum version. The user directed this change. The documented requirements still stand: layout manifests need API 1.9 (Companion 4.2), and non-square bitmaps need API 1.11 (Companion 5.0).
 
-This contract plans P0 (R14) only. P1–P4 (R15–R18) are not yet planned. Each stage is planned on its own, using the previous stage's findings.
+This contract plans P0 (R14) only. P1 (R15) was settled without an implementation plan, and P2–P4 (R16–R18) are not yet planned. Each stage is planned on its own, using the previous stage's findings.
 
 ### Key Technical Decisions
 
@@ -280,7 +286,7 @@ docs/notes/
 
 ### Deferred to Follow-Up Work
 
-- Implementation planning for P1–P4 (R15–R18), one stage at a time.
+- Implementation planning for P2–P4 (R16–R18), one stage at a time.
 
 ### Considered and Not Built
 

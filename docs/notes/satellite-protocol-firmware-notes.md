@@ -103,7 +103,7 @@ Measured per `KEY-STATE` (`tools/fake-deck/out/run*/protocol.log`):
 | LCD key (ST7735 candidate) | 128×128 | 49,152 B | 65,536 B | not measured |
 | Encoder / OLED | 128×64 | 24,576 B | 32,768 B | 3,838–4,894 B |
 
-Firmware memory budget: the line buffer must hold the largest `KEY-STATE` line, about 33 KB for the OLED, or about 66 KB with 128×128 keys. Add the decoded frame (raw size above) or decode base64 in streaming fashion straight to the display. An ST7735 wants RGB565, so convert 3 bytes to 2 per pixel while writing. That halves the frame (72×72 → 10,368 B). PNG cuts the wire size about 10×, but needs an inflate implementation and its working memory (about 32 KB window) on the device. P1 should weigh that against the 10× bandwidth saving per board.
+Firmware memory budget: the line buffer must hold the largest `KEY-STATE` line, about 33 KB for the OLED, or about 66 KB with 128×128 keys. Add the decoded frame (raw size above) or decode base64 in streaming fashion straight to the display. An ST7735 wants RGB565, so convert 3 bytes to 2 per pixel while writing. That halves the frame (72×72 → 10,368 B). PNG cuts the wire size about 10×, but needs an inflate implementation and its working memory (about 32 KB window) on the device. P2 weighs that against the 10× bandwidth saving on the chosen board (see `board-and-framework-decision.md`).
 
 Contact sheet of what Companion sent (keys A/B 72×72, encoder 128×64, then the 1-bit OLED preview):
 
