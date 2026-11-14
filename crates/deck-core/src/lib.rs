@@ -6,5 +6,9 @@
 #![cfg_attr(not(test), no_std)]
 
 pub mod base64;
+pub mod bitmap;
+pub mod config;
+pub mod console;
+pub mod debounce;
 pub mod line;
 pub mod session;
