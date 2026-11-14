@@ -2,9 +2,13 @@
 
 How one Waveshare 0.85" ScreenKey Module B is wired to the Adafruit Feather ESP32 V2, and the panel values the firmware uses. This closes the three bench checks P1 left open in [the board decision](board-and-framework-decision.md): KEY polarity, the pull-up, and the panel offset.
 
-> **Status: the bench run is pending.** Every value below is the firmware's starting assumption until it is checked on the hardware (U8 in [the PoC plan](../plans/2026-11-13-1722-feat-companion-network-deck-poc-plan.md)). Replace each "assumed" with what the bench showed.
+> **Status: the bench run is pending.** Every value below is the firmware's starting assumption until it is checked on the hardware (U8 in [the PoC plan](../plans/2026-11-13-1722-feat-companion-network-deck-poc-plan.md)). Fill in each "pending" bench result as you check it.
 
 ## Wiring
+
+![Wiring diagram: Feather ESP32 V2 to one ScreenKey](deck-wiring.svg)
+
+[`deck-wiring.svg`](deck-wiring.svg) is hand-maintained. Whenever a pin changes, update the table below, the pin setup in `firmware/src/main.rs` and the diagram in the same commit.
 
 | ScreenKey pin | Feather ESP32 V2 | Notes |
 |---|---|---|
