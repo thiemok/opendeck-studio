@@ -15,6 +15,10 @@ execution: code
 - **Objective:** A self-built deck works as one Bitfocus Companion surface over Wi-Fi. Every piece of hardware on hand has been proven in it: two LCD keys, a rotary encoder with menu buttons, and an OLED. Enough has been learned to choose the final device shape and to start the Ethernet/PoE stages.
 - **Product authority:** This plan covers the proof-of-concept stages (P0–P4 below). The final device shape, Ethernet/PoE and scaling toward ~32 keys are context only. Each gets its own plan once the PoC is done.
 - **Open blockers:** None. Hardware identification and the firmware framework choice are part of the stages themselves.
+- **Planning scope:** Implementation planning below covers P0 (R14) only. P1–P4 are planned one stage at a time, each enriching this file once the previous stage's findings are in.
+- **Authority:** The Product Contract wins on behaviour, the Planning Contract's KTDs win on mechanism, and units override neither.
+- **Execution profile (P0):** A desktop-only spike, with a TypeScript (Node) fake-deck client and the latest Companion in a container on the Linux desktop. No hardware is involved.
+- **Stop conditions (P0):** Stop and report back if the latest Companion cannot register a layout-manifest surface with two keys and one encoder control. That would mean R2 cannot be met through the Satellite protocol as planned.
 
 ---
 
@@ -150,7 +154,7 @@ Each stage is defined by its requirement (R14–R18). The stages after the decis
 
 ### Dependencies / Assumptions
 
-- Companion 4.2 or newer (Satellite API 1.9+) is available on a Linux host. Earlier versions have no layout manifests, so the LCD keys and the encoder/OLED control could not be declared as separate controls with their own bitmap sizes. Non-square bitmaps need Companion 5.0+ (API 1.11). P0 confirms the exact minimum.
+- A current Companion release is available on a Linux host, and the PoC is tested against the latest stable release only. Per the Satellite API docs, layout manifests (separate LCD key and encoder/OLED controls with their own bitmap sizes) need Companion 4.2+ (API 1.9), and non-square bitmaps need Companion 5.0+ (API 1.11). Older versions are not tested.
 - The Waveshare key modules are SPI ST7735 displays with a key switch, and the OLED module is an I²C display plus encoder and buttons. Both are assumptions until identified: the key module in P1, the OLED module in P3.
 - The Pi Zero 2 W is not part of the deck. It may serve as a spare headless Companion host or test bench.
 - The LAN is trusted for Satellite traffic, which is unauthenticated. Only OTA needs protection (R13).
@@ -176,3 +180,240 @@ Each stage is defined by its requirement (R14–R18). The stages after the decis
 - Companion module development: https://companion.free/for-developers/setting-up-developer-environment
 - Elgato HID protocol docs, for reference only: https://docs.elgato.com/streamdeck/hid/
 - Prior DIY Elgato emulation, background on the rejected path: https://github.com/DDRBoxman/picodeck
+
+---
+
+## Planning Contract
+
+Product Contract preservation: changed: Dependencies / Assumptions (Companion version). P0 now tests against the latest Companion only and no longer confirms a minimum version. The user directed this change. The documented requirements still stand: layout manifests need API 1.9 (Companion 4.2), and non-square bitmaps need API 1.11 (Companion 5.0).
+
+This contract plans P0 (R14) only. P1–P4 (R15–R18) are not yet planned. Each stage is planned on its own, using the previous stage's findings.
+
+### Key Technical Decisions
+
+- KTD1. **The fake deck is a small TypeScript project on Node 24+ at `tools/fake-deck/`, managed with npm. `pngjs` is its only runtime dependency.** (session-settled: user-directed — chosen over Python: the user ruled Python out.) Node runs `.ts` files directly through type stripping, so there is no build step. `node:net` and `node:readline` give line-based TCP and the REPL. `node --test` runs the tests, and `tsc --noEmit` type-checks. The code sticks to erasable TypeScript syntax (no enums or namespaces), so type stripping can run it. `bitfocus/companion-satellite` is a full surface bridge, not a library, so the codec is hand-written. That project is a reference to read, not a dependency, because reusing it would hide the protocol details P0 must learn.
+- KTD2. **The fake deck uses the raw TCP transport on port 16622, not WebSocket (16623).** The firmware will use raw TCP, which needs no WebSocket framing or HTTP upgrade on the microcontroller. The spike exercises the same transport the device will. The port stays configurable because the docs say it may become configurable on the server side.
+- KTD3. **The surface registers in advanced mode with a `LAYOUT_MANIFEST` and targets the latest Companion only.** The manifest declares two key controls and one encoder control, each with its own style preset (R2, R14). The client logs `ApiVersion` and `CAPS` from the handshake. If `CAPS` lacks `NONSQUARE`, it refuses to register and says that it needs a current Companion. `SERIAL` is always sent.
+- KTD4. **The spike requests `rgb` bitmaps by default, and a flag asks for `png` when `BITMAP_FORMATS` offers it.** `rgb` is always available and needs no decoder on the device. The `png` run only measures wire size, so the notes can weigh decode cost against bandwidth for P1.
+- KTD5. **The OLED question is answered by asking for both a 128×64 bitmap and text on the encoder control, and comparing them.** The encoder preset requests a 128×64 bitmap plus `text` and `textStyle`. The fake deck saves each received bitmap with a 1-bit preview next to it, and logs the decoded text. The notes recommend image, text or both for a mono OLED, based on those artifacts.
+- KTD6. **Companion runs in the official container image, `ghcr.io/bitfocus/companion/companion`, pinned to the latest stable release tag.** (session-settled: user-directed — chosen over also testing a 4.2 floor version: not needed.) The container keeps the spike off any Companion the operator already runs. Pinning the tag keeps the notes tied to a known version. Host ports are remapped away from 8000/16622, and the config volume lives under a gitignored directory.
+- KTD7. **Connection policy: one reconnect policy that the firmware can copy.** The client sends `PING` every 2 s. It treats the link as dead after 5 s without any server line, or on socket close. It reconnects with capped exponential backoff (1 s doubling to a 10 s cap) and re-runs the full `ADD-DEVICE` registration on every connect, because disconnect removes the device on the Companion side. The spike measures whether these numbers hold. The final values go in the notes, not here.
+- KTD8. **Findings live in one firmware-facing note, `docs/notes/satellite-protocol-firmware-notes.md`, backed by trimmed protocol-log excerpts.** P1 and P2 read one page instead of a log dump. Raw logs and images stay in the gitignored `tools/fake-deck/out/`.
+
+### High-Level Technical Design
+
+Components of the fake deck and the test bench:
+
+```mermaid
+flowchart TB
+  REPL[Terminal REPL: press, rotate, push] --> S[Session: connect, register, ping, reconnect]
+  S <--> C[Codec: line parse/format, manifest builder, bitmap decode]
+  C <-->|TCP 16622| Comp[Companion container, latest stable]
+  S --> Sink[Image sink: PNG per control + 1-bit OLED preview]
+  S --> Log[Protocol log: every line in and out]
+```
+
+Session sequence the spike must exercise (and the firmware will copy):
+
+```mermaid
+sequenceDiagram
+  participant D as Fake deck
+  participant C as Companion
+  D->>C: TCP connect
+  C->>D: BEGIN CompanionVersion ApiVersion
+  C->>D: CAPS (NONSQUARE, BITMAP_FORMATS, ...)
+  D->>C: ADD-DEVICE DEVICEID, SERIAL, PRODUCT_NAME, LAYOUT_MANIFEST
+  C->>D: ADD-DEVICE OK
+  C->>D: KEY-STATE per control (BITMAP, TEXT, COLOR)
+  loop every 2 s
+    D->>C: PING
+    C->>D: PONG
+  end
+  D->>C: KEY-PRESS CONTROLID PRESSED=1 then 0
+  D->>C: KEY-ROTATE CONTROLID DIRECTION=±1
+  C->>D: KEY-STATE (updated image)
+```
+
+Connection states (KTD7):
+
+```mermaid
+stateDiagram-v2
+  [*] --> Connecting
+  Connecting --> Handshake: socket open
+  Connecting --> Backoff: connect failed
+  Handshake --> Registered: ADD-DEVICE OK
+  Handshake --> Stopped: CAPS lacks NONSQUARE
+  Handshake --> Backoff: ADD-DEVICE ERROR or close
+  Registered --> Backoff: close or 5 s silence
+  Backoff --> Connecting: delay elapsed (1 s doubling, 10 s cap)
+```
+
+### Output Structure
+
+```text
+tools/fake-deck/
+  package.json
+  tsconfig.json        # type-check only (noEmit, erasable syntax)
+  README.md            # how to start Companion and run the spike
+  compose.yaml         # pinned Companion service
+  .gitignore           # node_modules/, out/, companion-data/
+  companion-config/    # committed Companion config export
+  src/
+    main.ts            # CLI entry and REPL
+    protocol.ts        # codec and manifest builder
+    session.ts         # connection lifecycle and reconnect
+    images.ts          # bitmap decode and PNG / mono preview output
+  test/
+    protocol.test.ts
+    session.test.ts
+    images.test.ts
+docs/notes/
+  satellite-protocol-firmware-notes.md
+```
+
+### Assumptions
+
+- The ST7735 key size is unknown until P1, so key bitmap size is a CLI option. The spike runs at Companion's default 72×72 and at least one plausible ST7735 size (80×80 or 128×128), so the notes cover the memory range.
+- Buttons are configured by hand in the Companion web UI for the spike. The resulting Companion config export is committed so a rerun needs no manual setup.
+- The encoder control works as a Companion button with rotary actions enabled. The spike confirms this and records the steps in the notes.
+- The operator's own Companion install is not used or modified.
+
+### Deferred to Follow-Up Work
+
+- Implementation planning for P1–P4 (R15–R18), one stage at a time.
+
+### Considered and Not Built
+
+- WebSocket transport: the firmware will not use it (KTD2). Revisit if raw TCP turns out to be blocked on the target network.
+- Testing older Companion versions: the user ruled it out (KTD6). The notes cite the documented API version of each feature used, so a later stage can work out an older floor if it ever needs one.
+- Subscriptions, variables, pincode lock, bitmap cache, LEDs and `DEVICE-APPEARANCE`: no R-ID needs them for the PoC. The notes list them with their API versions so later stages can opt in.
+- A GUI window that renders the keys: PNG files per control show the same evidence with less code. Revisit only if inspecting files slows the spike down.
+- CI for the spike: it is a throwaway learning tool, and running `npm test` locally is enough.
+
+### Risks & Dependencies
+
+- Satellite quoting rules (embedded quotes, escapes) are only partly documented. The codec tests start from the Satellite API page examples. Cases seen in the U4 logs are added to `test/protocol.test.ts`, and the notes record the rules observed.
+- The newest tagged release may predate API 1.15/1.16 (Companion 5.2). The notes list the API level actually tested and do not claim that later features were verified.
+- Companion's server-side idle timeout is undocumented. The spike measures it with `--no-ping`, and the notes record the value.
+
+### Deferred to Implementation
+
+- The exact latest stable container tag at the time of the run.
+- Exact control IDs and grid positions in the manifest, chosen so Companion's button editor shows the two keys and the encoder in one row.
+- The 1-bit conversion method for the OLED preview (threshold vs dither), whichever is more legible.
+
+---
+
+## Implementation Units
+
+### U1. Companion test bench
+
+- **Goal:** One command starts the pinned latest Companion, reachable from the desktop on remapped ports (KTD6).
+- **Requirements:** R14
+- **Dependencies:** None
+- **Files:** `tools/fake-deck/compose.yaml`, `tools/fake-deck/README.md`, `tools/fake-deck/.gitignore`, `tools/fake-deck/companion-config/` (committed config export, added after the first U4 run)
+- **Approach:**
+  1. One compose service pinned to the latest stable tag, with host ports remapped for the web UI and Satellite TCP, and a gitignored data volume.
+  2. The README covers starting it, opening the web UI, confirming the Satellite listener is on, and importing the committed config.
+- **Execution note:** This is mostly environment setup, so verify it by starting Companion and connecting, not with unit tests.
+- **Test expectation:** none, because this is environment configuration that U4 proves by running it.
+- **Verification:** Companion starts and its web UI loads. A raw TCP connection to the remapped Satellite port receives `BEGIN` and a `CAPS` line that includes `NONSQUARE`. The README records the Companion and API versions it reported.
+
+### U2. Satellite protocol codec
+
+- **Goal:** Pure functions that parse and format Satellite lines, build the layout manifest, and check the handshake capabilities (KTD3).
+- **Requirements:** R14, R2
+- **Dependencies:** None
+- **Files:** `tools/fake-deck/package.json`, `tools/fake-deck/tsconfig.json`, `tools/fake-deck/src/protocol.ts`, `tools/fake-deck/test/protocol.test.ts`
+- **Approach:**
+  1. Represent a line as a command name plus an ordered key/value map. Quote values on output when they contain spaces or special characters.
+  2. Parse `KEY=value`, `KEY="quoted value"` and bare flags. Keep `=` inside values, because base64 padding ends in `=`.
+  3. Normalise booleans (`0`/`1`/`true`/`false`) and split responses into `OK` and `ERROR`.
+  4. Build the manifest as base64 JSON with `stylePresets` (`default`, `key`, `encoder`) and three `controls`. The encoder preset is 128×64 (KTD5).
+  5. Parse `CAPS` flags and the `BITMAP_FORMATS` list into a capabilities record.
+- **Patterns to follow:** The message syntax on the Satellite API page. `bitfocus/companion-satellite` is a read-only reference for edge cases.
+- **Test scenarios:**
+  - Formatting `KEY-PRESS` with `CONTROLID` `0/1` and `PRESSED` true gives one line with the control ID quoted, `PRESSED=1`, and a trailing newline.
+  - Parsing a `KEY-STATE` line with `CONTROLID="0/0"`, a base64 `BITMAP` ending in `==`, `COLOR=#ff0000` and a base64 `TEXT` keeps the bitmap's `=` padding intact and decodes the text.
+  - Parsing `ADD-DEVICE ERROR DEVICEID=x MESSAGE="Unknown control"` gives an error response with the message text.
+  - A bare `ERROR MESSAGE="Unknown command: FOO"` parses as an error with no device ID.
+  - An unknown command such as `FUTURE-THING A=1` parses into a generic message and does not throw.
+  - `PRESSED=true`, `PRESSED=1`, `PRESSED=false` and `PRESSED=0` normalise to the right booleans.
+  - The manifest decodes to presets that include `default`, has three controls, and gives the encoder a 128×64 bitmap preset with `text` enabled.
+  - The `CAPS` line `CAPS SUBSCRIPTIONS=1 NONSQUARE=1 BITMAP_FORMATS=rgb,png` parses into flags plus a format list containing `png`.
+- **Verification:** The codec tests pass, and no network or file I/O exists in this module.
+
+### U3. Fake deck client: session, images and REPL
+
+- **Goal:** A runnable fake deck that registers with Companion, saves every received image, sends key and encoder input from a terminal REPL, and reconnects on its own (R14, KTD7).
+- **Requirements:** R14. It exercises R2, R5, R6, R7 and R8 at protocol level. Covers AE1 at protocol level.
+- **Dependencies:** U2
+- **Files:** `tools/fake-deck/src/session.ts`, `tools/fake-deck/src/images.ts`, `tools/fake-deck/src/main.ts`, `tools/fake-deck/test/session.test.ts`, `tools/fake-deck/test/images.test.ts`
+- **Approach:**
+  1. The session follows the state diagram in High-Level Technical Design. It reads `BEGIN` and `CAPS`, sends `ADD-DEVICE` with a stable `DEVICEID` and `SERIAL` (KTD3), answers server `PING` with `PONG`, sends its own `PING` every 2 s, and re-registers after every reconnect.
+  2. On each `KEY-STATE`, the image module decodes `rgb` or a `data:` PNG URL with `pngjs`. It checks the byte length against the preset size, writes `out/<control>.png`, and for the encoder also writes the 1-bit preview (KTD5). On each `KEYS-CLEAR`, all controls reset to black.
+  3. Every line in and out is logged with a timestamp to `out/protocol.log`, together with each bitmap's raw and base64 byte size.
+  4. REPL commands: `press <key>` sends `PRESSED=1`, then `0` after a short hold. `rotate <+n|-n>` sends `KEY-ROTATE`. `push` presses and releases the encoder control. `quit` sends `QUIT`.
+  5. CLI options: host, port, key bitmap size, bitmap format (KTD4), device ID, and `--no-ping`. The last one stops the client's own `PING` and turns off the silence watchdog, so only a socket close ends the session. The client still answers server `PING`.
+- **Execution note:** Test the session against an in-process `node:net` fake server that plays scripted Companion lines, so the reconnect and capability paths are covered without a container.
+- **Test scenarios:**
+  - When the fake server sends `BEGIN` and `CAPS NONSQUARE=1`, the client sends one `ADD-DEVICE` with `SERIAL` and a `LAYOUT_MANIFEST` whose decoded content has three controls.
+  - When `CAPS` lacks `NONSQUARE`, the client sends no `ADD-DEVICE`, logs that it needs a current Companion, and exits with a non-zero status.
+  - When the server advertises `BITMAP_FORMATS=rgb,png` and the client runs with the png flag, `ADD-DEVICE` carries `BITMAP_FORMAT=png`. Without `png` in `CAPS` the client sends no format parameter.
+  - A server `PING abc` gets the reply `PONG abc`.
+  - With the ping interval shortened in the test, the client sends `PING` repeatedly while registered.
+  - With `--no-ping`, the client sends no `PING` and stays connected through server silence until the server closes the socket.
+  - Covers AE1. When the server closes the socket after registration, the client logs a disconnected state, reconnects after the backoff, and sends `ADD-DEVICE` again on the new connection.
+  - Covers AE1. When the server goes silent without closing (no `PONG`), the client declares the link dead within the silence timeout and reconnects.
+  - A server `ADD-DEVICE ERROR MESSAGE="..."` is logged with its message, and the client backs off instead of looping without delay.
+  - The REPL command `press 1` sends `KEY-PRESS` for key 1's control ID with `PRESSED=1` and then `PRESSED=0`.
+  - The REPL commands `rotate +1` and `rotate -1` send `KEY-ROTATE` with `DIRECTION=1` and `DIRECTION=-1` on the encoder control ID, and `push` sends a press/release pair on that same control.
+  - A `KEY-STATE` with a 72×72 `rgb` bitmap writes a 72×72 PNG for that control.
+  - A `KEY-STATE` for the encoder writes the 128×64 PNG and a 1-bit preview.
+  - A bitmap whose decoded length does not match the preset size is logged as a mismatch with expected and actual bytes, the session stays up, and no PNG is written.
+  - A `KEY-STATE` carrying a `data:image/png;base64,` bitmap decodes through the PNG path.
+- **Verification:** The session and image tests pass. Running the fake deck against the U1 Companion lists the surface in Companion's Surfaces table.
+
+### U4. Spike runs and firmware notes
+
+- **Goal:** Run the fake deck against the pinned latest Companion and write the firmware-facing note that answers every R14 question (KTD8).
+- **Requirements:** R14. It informs R15 and the Deferred to Planning question on API version and image sizes.
+- **Dependencies:** U1, U3
+- **Files:** `docs/notes/satellite-protocol-firmware-notes.md`, `tools/fake-deck/companion-config/` (exported Companion config)
+- **Approach:** Run this checklist, keeping the log excerpt each answer rests on:
+  1. Registration: the surface appears with two keys and one encoder control laid out as intended.
+  2. Images: assign text, colour and icon buttons, and record each image's size, format and byte cost per control.
+  3. Input: key press and release trigger actions, encoder rotate and push trigger rotary actions, and Companion pushes updated images afterwards.
+  4. OLED: compare the 128×64 bitmap preview with the decoded text, and pick a recommendation.
+  5. Reconnect: stop and start the container, pause it to simulate a half-open link, run with `--no-ping` to measure the server's idle timeout (time from the client's last line to the server's close), and confirm that images and surface config are restored after re-registration.
+- **Execution note:** Use the logs and images as evidence. Every claim in the note cites a run (Companion version, date) or a log excerpt.
+- **Test expectation:** none, because this unit produces a document from manual runs. Its checks are the content checks in Verification.
+- **Verification:** The note has one section for each R14 item:
+  - the messages the firmware must send and handle
+  - image sizes and formats per control, with byte budgets
+  - reconnect behaviour, with measured timings
+  - the Satellite API version tested, plus the documented minimum API version for each feature used
+  - the image-vs-TEXT recommendation for a 128×64 mono OLED
+
+  It also lists the protocol features left out, with their API versions.
+
+---
+
+## Verification Contract
+
+| Gate | Command or check | Applies to |
+|---|---|---|
+| Unit tests | `npm test` (runs `node --test`) from `tools/fake-deck/` | U2, U3 |
+| Type check | `npm run typecheck` (runs `tsc --noEmit`) from `tools/fake-deck/` | U2, U3 |
+| CLI smoke | `node src/main.ts --help` from `tools/fake-deck/` lists the host, port, size, format, device-ID and `--no-ping` options | U3 |
+| Test bench | The pinned Companion starts and sends `BEGIN` and `CAPS` on its remapped Satellite port | U1 |
+| End-to-end | The fake deck registers, and key press, encoder rotate and push each trigger a configured Companion action | U3, U4 |
+| Findings | `docs/notes/satellite-protocol-firmware-notes.md` answers R14's done-when and the U4 Verification list, and every claim cites a run or a log excerpt | U4 |
+
+---
+
+## Definition of Done
+
+- R14's done-when holds: the notes are enough for P1 to start firmware networking without rerunning the spike.
+- U1–U4 each meet their Verification.
+- No experimental code from abandoned approaches stays in `tools/fake-deck/`. Generated output (`node_modules/`, `out/`, container data) is gitignored and not committed.
