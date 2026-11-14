@@ -100,7 +100,16 @@ function main(): void {
 	const outDir = values.out
 	mkdirSync(outDir, { recursive: true })
 	const logFile = join(outDir, 'protocol.log')
-	const record = (text: string) => appendFileSync(logFile, `${new Date().toISOString()} ${text}\n`)
+	let logBroken = false
+	const record = (text: string) => {
+		if (logBroken) return
+		try {
+			appendFileSync(logFile, `${new Date().toISOString()} ${text}\n`)
+		} catch (err) {
+			logBroken = true
+			console.error(`protocol.log disabled: ${(err as Error).message}`)
+		}
+	}
 
 	const keySize = Number(values['key-size'])
 	const session = new FakeDeckSession({
@@ -131,11 +140,16 @@ function main(): void {
 	session.on('fatal', () => process.exit(1))
 
 	const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: 'deck> ' })
-	rl.on('line', async (input) => {
-		if (!(await executeCommand(session, input))) rl.close()
-		else rl.prompt()
+	// readline does not await async handlers; chain commands so a press's release is sent before the next command.
+	let pending = Promise.resolve()
+	rl.on('line', (input) => {
+		pending = pending.then(async () => {
+			if (!(await executeCommand(session, input))) rl.close()
+			else rl.prompt()
+		})
 	})
-	rl.on('close', () => {
+	rl.on('close', async () => {
+		await pending
 		session.stop()
 		setTimeout(() => process.exit(0), 300)
 	})

@@ -104,16 +104,26 @@ describe('FakeDeckSession', () => {
 		session.stop()
 	})
 
-	it('refuses to register and reports a fatal error when CAPS lacks NONSQUARE', async () => {
+	it('gives up on an ApiVersion too old to send CAPS instead of waiting for it', async () => {
 		const { companion, session } = await setup({}, (c) => {
 			c.onConnect = (s) => s.write('BEGIN CompanionVersion="4.2.0" ApiVersion="1.9.0" \n')
 		})
 		const fatal = new Promise<string>((r) => session.once('fatal', r))
 		session.start()
-		await new Promise((r) => setTimeout(r, 20))
-		// API 1.9 sends no CAPS at all; the client must give up rather than wait forever
 		const message = await fatal
-		assert.match(message, /NONSQUARE|current Companion/)
+		assert.match(message, /ApiVersion 1\.9\.0/)
+		assert.equal(session.state, 'stopped')
+		assert.equal(companion.sent('ADD-DEVICE').length, 0)
+	})
+
+	it('refuses to register and reports a fatal error when CAPS lacks NONSQUARE', async () => {
+		const { companion, session } = await setup({}, (c) => {
+			c.onConnect = (s) => s.write('BEGIN ApiVersion="1.14.0" \nCAPS SUBSCRIPTIONS=0 NONSQUARE=0 BITMAP_FORMATS="rgb" \n')
+		})
+		const fatal = new Promise<string>((r) => session.once('fatal', r))
+		session.start()
+		const message = await fatal
+		assert.match(message, /CAPS lacks NONSQUARE/)
 		assert.equal(session.state, 'stopped')
 		assert.equal(companion.sent('ADD-DEVICE').length, 0)
 	})
@@ -260,6 +270,138 @@ describe('REPL commands', () => {
 				[CONTROL_IDS.encoder, '0'],
 			]
 		)
+		session.stop()
+	})
+
+	it('rotate +3 / -2 send one single-step KEY-ROTATE per detent', async () => {
+		const { companion, session } = await setup()
+		session.start()
+		await waitFor(() => session.state === 'registered')
+		await executeCommand(session, 'rotate +3')
+		await executeCommand(session, 'rotate -2')
+		await waitFor(() => companion.sent('KEY-ROTATE').length === 5)
+		assert.deepEqual(
+			companion.sent('KEY-ROTATE').map((m) => m.params.DIRECTION),
+			['1', '1', '1', '-1', '-1']
+		)
+		session.stop()
+	})
+
+	it('ignores invalid input and returns false only for quit', async () => {
+		const { companion, session } = await setup()
+		session.start()
+		await waitFor(() => session.state === 'registered')
+		for (const input of ['press 2', 'press', 'rotate 0', 'rotate abc', 'rotate', 'jump', '']) {
+			assert.equal(await executeCommand(session, input), true, input)
+		}
+		assert.equal(await executeCommand(session, 'quit'), false)
+		await new Promise((r) => setTimeout(r, 30))
+		assert.equal(companion.sent('KEY-PRESS').length, 0)
+		assert.equal(companion.sent('KEY-ROTATE').length, 0)
+		session.stop()
+	})
+})
+
+describe('FakeDeckSession lifecycle', () => {
+	it('doubles the backoff up to the cap and resets it after a successful registration', async () => {
+		const connectedAt: number[] = []
+		const { companion, session } = await setup({ backoffInitialMs: 40, backoffMaxMs: 120 }, (c) => {
+			c.onConnect = (s) => {
+				connectedAt.push(Date.now())
+				s.write(HANDSHAKE)
+			}
+			c.onLine = (msg, socket) => {
+				if (msg.command !== 'ADD-DEVICE') return
+				// connections 1-4 are refused, 5 registers, 6 is refused again
+				if (connectedAt.length === 5) socket.write(`ADD-DEVICE OK DEVICEID="${msg.params.DEVICEID}" \n`)
+				else socket.write('ADD-DEVICE ERROR DEVICEID="fake-test" MESSAGE="busy" \n')
+			}
+		})
+		session.start()
+		await waitFor(() => session.state === 'registered' && connectedAt.length === 5, 3000)
+		companion.connections[4].socket.destroy()
+		await waitFor(() => connectedAt.length === 6, 3000)
+		session.stop()
+
+		const gaps = connectedAt.slice(1).map((t, i) => t - connectedAt[i])
+		const expected = [40, 80, 120, 120, 40]
+		gaps.forEach((gap, i) => {
+			assert.ok(gap >= expected[i] - 5 && gap < expected[i] + 60, `gap ${i}: ${gap} ms, expected ~${expected[i]} ms`)
+		})
+	})
+
+	it('times out a connect attempt that never completes and goes through backoff', async () => {
+		// 10.255.255.1 is non-routable: the SYN goes unanswered, like a host that vanished without a RST.
+		const session = new FakeDeckSession({
+			host: '10.255.255.1',
+			port: 16622,
+			deviceId: 'fake-test',
+			keySize: 72,
+			bitmapFormat: 'rgb',
+			ping: false,
+			pingIntervalMs: 40,
+			silenceTimeoutMs: 150,
+			backoffInitialMs: 10_000,
+			backoffMaxMs: 10_000,
+			holdMs: 5,
+		})
+		sessions.push(session)
+		const logs: string[] = []
+		session.on('log', (l: string) => logs.push(l))
+		const started = Date.now()
+		session.start()
+		await waitFor(() => session.state === 'backoff', 2000)
+		assert.ok(Date.now() - started < 1000, 'connect was not bounded by the timeout')
+		assert.ok(logs.some((l) => /connect timed out after 150 ms/.test(l)), logs.join('\n'))
+		session.stop()
+	})
+
+	it('a repeated ADD-DEVICE OK does not stack ping timers', async () => {
+		const { companion, session } = await setup({ pingIntervalMs: 50 }, (c) => {
+			c.onLine = (msg, socket) => {
+				if (msg.command === 'ADD-DEVICE') socket.write(`ADD-DEVICE OK DEVICEID="x" \nADD-DEVICE OK DEVICEID="x" \n`)
+				if (msg.command === 'PING') socket.write(`PONG ${msg.body} \n`)
+			}
+		})
+		session.start()
+		await waitFor(() => session.state === 'registered')
+		const before = companion.sent('PING').length
+		await new Promise((r) => setTimeout(r, 300))
+		const pings = companion.sent('PING').length - before
+		assert.ok(pings >= 4 && pings <= 7, `expected ~6 pings in 300 ms, got ${pings}`)
+		session.stop()
+	})
+
+	it('stop() sends QUIT on a live connection', async () => {
+		const { companion, session } = await setup()
+		session.start()
+		await waitFor(() => session.state === 'registered')
+		session.stop()
+		await waitFor(() => companion.sent('QUIT').length === 1)
+		assert.equal(session.state, 'stopped')
+	})
+
+	it('stop() during backoff cancels the pending reconnect', async () => {
+		const { companion, session } = await setup({ backoffInitialMs: 80, backoffMaxMs: 80 })
+		session.start()
+		await waitFor(() => session.state === 'registered')
+		companion.connections[0].socket.destroy()
+		await waitFor(() => session.state === 'backoff')
+		session.stop()
+		await new Promise((r) => setTimeout(r, 200))
+		assert.equal(companion.connections.length, 1)
+	})
+
+	it('start() during backoff reconnects once instead of leaving a second retry pending', async () => {
+		const { companion, session } = await setup({ backoffInitialMs: 80, backoffMaxMs: 80 })
+		session.start()
+		await waitFor(() => session.state === 'registered')
+		companion.connections[0].socket.destroy()
+		await waitFor(() => session.state === 'backoff')
+		session.start()
+		await waitFor(() => session.state === 'registered')
+		await new Promise((r) => setTimeout(r, 200))
+		assert.equal(companion.connections.length, 2)
 		session.stop()
 	})
 })

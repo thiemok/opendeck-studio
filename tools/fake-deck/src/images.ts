@@ -32,7 +32,7 @@ function encodePng(rgb: Buffer, { w, h }: Size): Buffer {
 function toMono(rgb: Buffer): Buffer {
 	const out = Buffer.alloc(rgb.length)
 	for (let i = 0; i < rgb.length; i += 3) {
-		const luma = 0.299 * rgb[i] + 0.587 * rgb[i + 1] + 0.114 * rgb[i + 2]
+		const luma = (299 * rgb[i] + 587 * rgb[i + 1] + 114 * rgb[i + 2]) / 1000
 		out.fill(luma >= MONO_THRESHOLD ? 255 : 0, i, i + 3)
 	}
 	return out
@@ -43,7 +43,12 @@ type Decoded = { ok: true; rgb: Buffer; format: string } | { ok: false; reason: 
 function decodeBitmap(bitmap: string, size: Size): Decoded {
 	const expected = size.w * size.h * 3
 	if (bitmap.startsWith('data:image/png;base64,')) {
-		const png = PNG.sync.read(Buffer.from(bitmap.slice(bitmap.indexOf(',') + 1), 'base64'))
+		let png: PNG
+		try {
+			png = PNG.sync.read(Buffer.from(bitmap.slice(bitmap.indexOf(',') + 1), 'base64'))
+		} catch (err) {
+			return { ok: false, reason: `png decode failed: ${(err as Error).message}` }
+		}
 		if (png.width !== size.w || png.height !== size.h) {
 			return { ok: false, reason: `png is ${png.width}x${png.height}, expected ${size.w}x${size.h}` }
 		}
@@ -80,9 +85,13 @@ export class ImageSink {
 	#write(controlId: string, rgb: Buffer): void {
 		const size = this.#sizeOf(controlId)
 		const name = fileName(controlId)
-		writeFileSync(join(this.#opts.outDir, `${name}.png`), encodePng(rgb, size))
-		if (controlId === CONTROL_IDS.encoder) {
-			writeFileSync(join(this.#opts.outDir, `${name}-mono.png`), encodePng(toMono(rgb), size))
+		try {
+			writeFileSync(join(this.#opts.outDir, `${name}.png`), encodePng(rgb, size))
+			if (controlId === CONTROL_IDS.encoder) {
+				writeFileSync(join(this.#opts.outDir, `${name}-mono.png`), encodePng(toMono(rgb), size))
+			}
+		} catch (err) {
+			this.#opts.log(`[${controlId}] write failed: ${(err as Error).message}`)
 		}
 	}
 

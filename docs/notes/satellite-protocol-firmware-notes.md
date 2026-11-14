@@ -139,7 +139,8 @@ Firmware policy (KTD7, confirmed):
 2. Treat 5 s without any line from Companion as a dead link: close and reconnect. A healthy link always has a `PONG` every 2 s.
 3. Reconnect with backoff, and **re-send `ADD-DEVICE` on every connection**. Device state never survives a disconnect.
 4. Show the disconnected/searching state (R7) from the moment of disconnect until `ADD-DEVICE OK`.
-5. Cap the backoff at about 5 s instead of 10 s. With the 8 s step, recovery after a Companion restart took 7 s when 2–3 s was possible. AE1 asks for automatic recovery and shorter is better. A home LAN does not need the larger cap.
+5. Give each TCP connect attempt its own timeout of about 5 s. A Companion host that vanishes without a FIN or RST (powered off, Wi-Fi gone, firewall DROP) otherwise holds every attempt for the stack's SYN timeout, which is about 2 minutes on Linux, and the backoff never bounds recovery. The fake deck does this with `socket.setTimeout` until `connect`.
+6. Cap the backoff at about 5 s instead of 10 s. With the 8 s step, recovery after a Companion restart took 7 s when 2–3 s was possible. AE1 asks for automatic recovery and shorter is better. A home LAN does not need the larger cap.
 
 ## Rotation amounts
 

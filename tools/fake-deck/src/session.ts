@@ -33,7 +33,10 @@ interface SessionEvents {
 	fatal: [message: string]
 }
 
-/** CAPS (and with it NONSQUARE) only exists from Satellite API 1.10. An unparsable version counts as too old. */
+/**
+ * CAPS only exists from Satellite API 1.10, so anything older can never advertise NONSQUARE (API 1.11).
+ * A 1.10 server still reaches the CAPS check, which rejects it there. An unparsable version counts as too old.
+ */
 function hasCaps(apiVersion: string): boolean {
 	const [major, minor] = apiVersion.split('.').map(Number)
 	return major > 1 || (major === 1 && minor >= 10)
@@ -70,6 +73,7 @@ export class FakeDeckSession extends EventEmitter<SessionEvents> {
 
 	start(): void {
 		if (this.state !== 'idle' && this.state !== 'backoff') return
+		this.#clearTimers()
 		this.#connect()
 	}
 
@@ -113,9 +117,15 @@ export class FakeDeckSession extends EventEmitter<SessionEvents> {
 		this.#socket = socket
 		socket.setNoDelay(true)
 		socket.setEncoding('utf8')
+		// A host that drops SYNs would otherwise hold this attempt for the OS connect timeout (~2 min).
+		socket.setTimeout(this.opts.silenceTimeoutMs, () => {
+			this.emit('log', `connect timed out after ${this.opts.silenceTimeoutMs} ms`)
+			socket.destroy()
+		})
 
 		socket.on('connect', () => {
 			if (this.#socket !== socket) return
+			socket.setTimeout(0)
 			this.#setState('handshake')
 			this.#armSilence()
 		})
@@ -221,6 +231,7 @@ export class FakeDeckSession extends EventEmitter<SessionEvents> {
 
 	#startPing(): void {
 		if (!this.opts.ping) return
+		if (this.#pingTimer) clearInterval(this.#pingTimer)
 		this.#pingTimer = setInterval(() => this.#sendRaw(`PING ${Date.now()}\n`), this.opts.pingIntervalMs)
 	}
 

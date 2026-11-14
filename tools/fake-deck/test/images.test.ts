@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, readFileSync, existsSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it } from 'node:test'
@@ -91,5 +91,46 @@ describe('ImageSink', () => {
 			const png = readPng(join(dir, `${name}.png`))
 			assert.deepEqual([...png.data.subarray(0, 3)], [0, 0, 0])
 		}
+	})
+
+	it('rejects a PNG bitmap of the wrong size without writing it', () => {
+		const { dir, sink, logs } = newSink()
+		const src = new PNG({ width: 10, height: 10 })
+		const dataUrl = `data:image/png;base64,${PNG.sync.write(src).toString('base64')}`
+		sink.handleKeyState({ CONTROLID: CONTROL_IDS.key0, BITMAP: dataUrl })
+		assert.equal(existsSync(join(dir, '0-0.png')), false)
+		assert.ok(logs.some((l) => l.includes('png is 10x10, expected 72x72')), logs.join('\n'))
+	})
+
+	it('rejects an unsupported data: bitmap format', () => {
+		const { dir, sink, logs } = newSink()
+		sink.handleKeyState({ CONTROLID: CONTROL_IDS.key0, BITMAP: 'data:image/webp;base64,AAAA' })
+		assert.equal(existsSync(join(dir, '0-0.png')), false)
+		assert.ok(logs.some((l) => l.includes('unsupported bitmap format data:image/webp')), logs.join('\n'))
+	})
+
+	it('logs a corrupt PNG bitmap instead of throwing', () => {
+		const { dir, sink, logs } = newSink()
+		sink.handleKeyState({ CONTROLID: CONTROL_IDS.key0, BITMAP: 'data:image/png;base64,bm90IGEgcG5n' })
+		assert.equal(existsSync(join(dir, '0-0.png')), false)
+		assert.ok(logs.some((l) => l.includes('png decode failed')), logs.join('\n'))
+	})
+
+	it('logs a failed file write instead of throwing', () => {
+		const { dir, sink, logs } = newSink()
+		rmSync(dir, { recursive: true })
+		writeFileSync(dir, 'not a directory')
+		sink.handleKeyState({ CONTROLID: CONTROL_IDS.key0, BITMAP: rgbOf(72, 72, () => [1, 2, 3]).toString('base64') })
+		assert.ok(logs.some((l) => l.includes('write failed')), logs.join('\n'))
+	})
+
+	it('thresholds the 1-bit preview at luma 128', () => {
+		const { dir, sink } = newSink()
+		const rgb = rgbOf(128, 64, (x) => (x < 64 ? [127, 127, 127] : [128, 128, 128]))
+		sink.handleKeyState({ CONTROLID: CONTROL_IDS.encoder, BITMAP: rgb.toString('base64') })
+		const mono = readPng(join(dir, '0-2-mono.png'))
+		const px = (x: number) => [...mono.data.subarray(x * 4, x * 4 + 3)]
+		assert.deepEqual(px(10), [0, 0, 0])
+		assert.deepEqual(px(100), [255, 255, 255])
 	})
 })

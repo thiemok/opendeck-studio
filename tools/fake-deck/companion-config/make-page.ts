@@ -1,3 +1,5 @@
+import { CONTROL_IDS } from '../src/protocol.ts'
+
 const v = <T>(value: T, isExpression = false) => ({ value, isExpression })
 
 let actionCount = 0
@@ -66,6 +68,29 @@ const button = (text: string, bg: number, actionSets: Record<string, unknown[]>,
 	localVariables: [],
 })
 
+// Companion page exports key controls by row, then column; place each at the fake deck's own control ID.
+const controls: Record<string, Record<string, unknown>> = {}
+const place = (controlId: string, control: unknown) => {
+	const [row, column] = controlId.split('/')
+	controls[row] ??= {}
+	controls[row][column] = control
+}
+place(CONTROL_IDS.key0, button('A\n$(custom:count)', 0xcc0000, { down: [setCount('$(custom:count) + 1')] }))
+place(CONTROL_IDS.key1, button('B\n$(custom:count)', 0x0044cc, { down: [setCount('$(custom:count) - 1')] }))
+place(
+	CONTROL_IDS.encoder,
+	button(
+		'Vol $(custom:count)',
+		0x000000,
+		{
+			down: [setCount('0')],
+			rotate_left: [setCount('$(custom:count) - 1')],
+			rotate_right: [setCount('$(custom:count) + 1')],
+		},
+		true
+	)
+)
+
 const page = {
 	version: 12,
 	type: 'page',
@@ -73,22 +98,7 @@ const page = {
 	page: {
 		id: 'fakeDeckPage00000000',
 		name: 'FAKE DECK',
-		controls: {
-			'0': {
-				'0': button('A\n$(custom:count)', 0xcc0000, { down: [setCount('$(custom:count) + 1')] }),
-				'1': button('B\n$(custom:count)', 0x0044cc, { down: [setCount('$(custom:count) - 1')] }),
-				'2': button(
-					'Vol $(custom:count)',
-					0x000000,
-					{
-						down: [setCount('0')],
-						rotate_left: [setCount('$(custom:count) - 1')],
-						rotate_right: [setCount('$(custom:count) + 1')],
-					},
-					true
-				),
-			},
-		},
+		controls,
 		gridSize: { minColumn: 0, maxColumn: 7, minRow: 0, maxRow: 3 },
 		pageVariables: [],
 	},
