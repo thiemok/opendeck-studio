@@ -1,7 +1,6 @@
 import { CONTROL_IDS } from './protocol.ts'
 import type { FakeDeckSession } from './session.ts'
 
-/** Runs one REPL command. Resolves to false for `quit`. */
 export async function executeCommand(session: FakeDeckSession, input: string): Promise<boolean> {
 	const [cmd, arg] = input.trim().split(/\s+/)
 	switch (cmd) {

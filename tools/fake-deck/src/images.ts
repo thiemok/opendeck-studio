@@ -33,12 +33,12 @@ function toMono(rgb: Buffer): Buffer {
 	const out = Buffer.alloc(rgb.length)
 	for (let i = 0; i < rgb.length; i += 3) {
 		const luma = (299 * rgb[i] + 587 * rgb[i + 1] + 114 * rgb[i + 2]) / 1000
-		out.fill(luma >= MONO_THRESHOLD ? 255 : 0, i, i + 3)
+		out[i] = out[i + 1] = out[i + 2] = luma >= MONO_THRESHOLD ? 255 : 0
 	}
 	return out
 }
 
-type Decoded = { ok: true; rgb: Buffer; format: string } | { ok: false; reason: string }
+type Decoded = { ok: true; rgb: Buffer; format: 'rgb' | 'png' } | { ok: false; reason: string }
 
 function decodeBitmap(bitmap: string, size: Size): Decoded {
 	const expected = size.w * size.h * 3

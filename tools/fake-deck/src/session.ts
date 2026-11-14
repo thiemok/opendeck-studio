@@ -58,7 +58,7 @@ export const DEFAULT_OPTIONS: Omit<SessionOptions, 'host' | 'deviceId'> = {
 	holdMs: 100,
 }
 
-export type SessionState = 'idle' | 'connecting' | 'handshake' | 'registered' | 'backoff' | 'stopped'
+type SessionState = 'idle' | 'connecting' | 'handshake' | 'registered' | 'backoff' | 'stopped'
 
 export class FakeDeckSession extends EventEmitter<SessionEvents> {
 	readonly opts: SessionOptions
@@ -176,8 +176,8 @@ export class FakeDeckSession extends EventEmitter<SessionEvents> {
 			case 'CAPS': {
 				const caps = parseCaps(msg.params)
 				this.emit('log', `caps: ${JSON.stringify(caps)}`)
-				if (!caps.nonSquare) return this.#fatal('CAPS lacks NONSQUARE; needs a current Companion')
-				this.#register(caps.bitmapFormats)
+				if (caps.nonSquare) this.#register(caps.bitmapFormats)
+				else this.#fatal('CAPS lacks NONSQUARE; needs a current Companion')
 				break
 			}
 			case 'ADD-DEVICE':
@@ -248,7 +248,10 @@ export class FakeDeckSession extends EventEmitter<SessionEvents> {
 
 	#armSilence(): void {
 		if (!this.opts.ping) return
-		if (this.#silenceTimer) clearTimeout(this.#silenceTimer)
+		if (this.#silenceTimer) {
+			this.#silenceTimer.refresh()
+			return
+		}
 		this.#silenceTimer = setTimeout(() => {
 			this.emit('log', `no data for ${this.opts.silenceTimeoutMs} ms; dropping link`)
 			this.#socket?.destroy()

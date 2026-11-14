@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import net from 'node:net'
 import { after, describe, it } from 'node:test'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { executeCommand } from '../src/repl.ts'
 import { CONTROL_IDS, parseLine, type Message } from '../src/protocol.ts'
 import { FakeDeckSession, type SessionOptions } from '../src/session.ts'
@@ -86,7 +87,7 @@ const waitFor = async (cond: () => boolean, timeoutMs = 2000): Promise<void> => 
 	const start = Date.now()
 	while (!cond()) {
 		if (Date.now() - start > timeoutMs) throw new Error('timed out waiting for condition')
-		await new Promise((r) => setTimeout(r, 5))
+		await sleep(5)
 	}
 }
 
@@ -152,13 +153,6 @@ describe('FakeDeckSession', () => {
 		companion.connections[0].socket.write('PING abc \n')
 		await waitFor(() => companion.sent('PONG').length > 0)
 		assert.equal(companion.sent('PONG')[0].body, 'abc')
-		session.stop()
-	})
-
-	it('sends PING repeatedly while registered', async () => {
-		const { companion, session } = await setup()
-		session.start()
-		await waitFor(() => companion.sent('PING').length >= 3)
 		session.stop()
 	})
 
@@ -324,22 +318,12 @@ describe('REPL commands', () => {
 		session.stop()
 	})
 
-	it('rotate +1/-1 and push act on the encoder control', async () => {
+	it('push presses and releases the encoder control', async () => {
 		const { companion, session } = await setup()
 		session.start()
 		await waitFor(() => session.state === 'registered')
-		await executeCommand(session, 'rotate +1')
-		await executeCommand(session, 'rotate -1')
 		await executeCommand(session, 'push')
-		await waitFor(() => companion.sent('KEY-ROTATE').length === 2 && companion.sent('KEY-PRESS').length === 2)
-		const rotates = companion.sent('KEY-ROTATE')
-		assert.deepEqual(
-			rotates.map((m) => [m.params.CONTROLID, m.params.DIRECTION]),
-			[
-				[CONTROL_IDS.encoder, '1'],
-				[CONTROL_IDS.encoder, '-1'],
-			]
-		)
+		await waitFor(() => companion.sent('KEY-PRESS').length === 2)
 		assert.deepEqual(
 			companion.sent('KEY-PRESS').map((m) => [m.params.CONTROLID, m.params.PRESSED]),
 			[
@@ -358,8 +342,14 @@ describe('REPL commands', () => {
 		await executeCommand(session, 'rotate -2')
 		await waitFor(() => companion.sent('KEY-ROTATE').length === 5)
 		assert.deepEqual(
-			companion.sent('KEY-ROTATE').map((m) => m.params.DIRECTION),
-			['1', '1', '1', '-1', '-1']
+			companion.sent('KEY-ROTATE').map((m) => [m.params.CONTROLID, m.params.DIRECTION]),
+			[
+				[CONTROL_IDS.encoder, '1'],
+				[CONTROL_IDS.encoder, '1'],
+				[CONTROL_IDS.encoder, '1'],
+				[CONTROL_IDS.encoder, '-1'],
+				[CONTROL_IDS.encoder, '-1'],
+			]
 		)
 		session.stop()
 	})

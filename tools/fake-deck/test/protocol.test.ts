@@ -109,7 +109,6 @@ describe('buildLayoutManifest', () => {
 	it('declares two keys and one 128x64 encoder with text', () => {
 		const manifest = JSON.parse(Buffer.from(buildLayoutManifest({ keySize: 72 }), 'base64').toString())
 		assert.ok(manifest.stylePresets.default)
-		assert.deepEqual(manifest.stylePresets.key.bitmap, { w: 72, h: 72 })
 		assert.deepEqual(manifest.stylePresets.encoder.bitmap, { w: 128, h: 64 })
 		assert.equal(manifest.stylePresets.encoder.text, true)
 		assert.equal(manifest.stylePresets.encoder.textStyle, true)
@@ -119,9 +118,11 @@ describe('buildLayoutManifest', () => {
 		for (const id of Object.keys(manifest.controls)) assert.match(id, /^[a-zA-Z0-9\-/]+$/)
 	})
 
-	it('uses the requested key size', () => {
-		const manifest = JSON.parse(Buffer.from(buildLayoutManifest({ keySize: 128 }), 'base64').toString())
-		assert.deepEqual(manifest.stylePresets.key.bitmap, { w: 128, h: 128 })
+	it('sizes the key preset from keySize', () => {
+		for (const keySize of [72, 128]) {
+			const manifest = JSON.parse(Buffer.from(buildLayoutManifest({ keySize }), 'base64').toString())
+			assert.deepEqual(manifest.stylePresets.key.bitmap, { w: keySize, h: keySize })
+		}
 	})
 })
 

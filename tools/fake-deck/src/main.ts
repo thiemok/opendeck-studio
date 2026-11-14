@@ -1,3 +1,4 @@
+import { once } from 'node:events'
 import { appendFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
@@ -38,6 +39,13 @@ REPL commands:
   quit                  Send QUIT and exit
 `
 
+function usageErrorFor(format: string | null, port: number, keySize: number): string | null {
+	if (!format) return '--format must be rgb or png'
+	if (!Number.isInteger(port) || port < 1 || port > 65535) return '--port must be an integer from 1 to 65535'
+	if (!Number.isInteger(keySize) || keySize < 1) return '--key-size must be a positive integer'
+	return null
+}
+
 function main(): void {
 	const { values } = parseArgs({
 		options: {
@@ -57,15 +65,9 @@ function main(): void {
 	}
 	const port = Number(values.port)
 	const keySize = Number(values['key-size'])
-	const usageError =
-		values.format !== 'rgb' && values.format !== 'png'
-			? '--format must be rgb or png'
-			: !Number.isInteger(port) || port < 1 || port > 65535
-				? '--port must be an integer from 1 to 65535'
-				: !Number.isInteger(keySize) || keySize < 1
-					? '--key-size must be a positive integer'
-					: null
-	if (usageError) {
+	const format = values.format === 'rgb' || values.format === 'png' ? values.format : null
+	const usageError = usageErrorFor(format, port, keySize)
+	if (usageError || !format) {
 		console.error(usageError)
 		process.exit(2)
 	}
@@ -90,7 +92,7 @@ function main(): void {
 		port,
 		deviceId: values['device-id'],
 		keySize,
-		bitmapFormat: values.format as 'rgb' | 'png',
+		bitmapFormat: format,
 		ping: !values['no-ping'],
 	})
 	const sink = new ImageSink({
@@ -112,7 +114,7 @@ function main(): void {
 	session.on('fatal', () => process.exit(1))
 
 	const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: 'deck> ' })
-	const registered = new Promise<void>((resolve) => session.once('registered', () => resolve()))
+	const registered = once(session, 'registered')
 	let closed = false
 	// readline does not await async handlers; chain commands so a press's release is sent before the next
 	// command, and hold input (e.g. piped) until the deck has registered. `quit` never waits.
@@ -130,7 +132,6 @@ function main(): void {
 	})
 	rl.on('close', async () => {
 		closed = true
-		// Let queued commands finish, but don't hang on EOF if the deck never registers.
 		await Promise.race([pending, sleep(DEFAULT_OPTIONS.silenceTimeoutMs)])
 		session.stop()
 		setTimeout(() => process.exit(0), 300)
