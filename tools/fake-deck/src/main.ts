@@ -1,9 +1,11 @@
 import { appendFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { parseArgs } from 'node:util'
 import { ImageSink } from './images.ts'
-import { CONTROL_IDS } from './protocol.ts'
+import { summariseLine } from './protocol.ts'
+import { executeCommand } from './repl.ts'
 import { DEFAULT_OPTIONS, FakeDeckSession } from './session.ts'
 
 const CLI_DEFAULTS = {
@@ -36,45 +38,6 @@ REPL commands:
   quit                  Send QUIT and exit
 `
 
-export async function executeCommand(session: FakeDeckSession, input: string): Promise<boolean> {
-	const [cmd, arg] = input.trim().split(/\s+/)
-	switch (cmd) {
-		case 'press': {
-			const key = arg === '0' ? CONTROL_IDS.key0 : arg === '1' ? CONTROL_IDS.key1 : null
-			if (!key) {
-				console.log('usage: press <0|1>')
-				break
-			}
-			await session.press(key)
-			break
-		}
-		case 'push':
-			await session.press(CONTROL_IDS.encoder)
-			break
-		case 'rotate': {
-			const steps = Number(arg)
-			if (!Number.isInteger(steps) || steps === 0) {
-				console.log('usage: rotate <+n|-n>')
-				break
-			}
-			// One KEY-ROTATE per detent: Companion runs the rotate action once per message, whatever DIRECTION's magnitude.
-			for (let i = 0; i < Math.abs(steps); i++) session.rotate(CONTROL_IDS.encoder, Math.sign(steps))
-			break
-		}
-		case 'quit':
-			return false
-		case undefined:
-		case '':
-			break
-		default:
-			console.log(`unknown command: ${cmd} (press, push, rotate, quit)`)
-	}
-	return true
-}
-
-const summarise = (line: string) =>
-	line.replace(/BITMAP="([^"]*)"/, (_m, b64: string) => `BITMAP=<${b64.length} bytes${b64.startsWith('data:') ? ' data-url' : ''}>`)
-
 function main(): void {
 	const { values } = parseArgs({
 		options: {
@@ -92,8 +55,18 @@ function main(): void {
 		process.stdout.write(HELP)
 		return
 	}
-	if (values.format !== 'rgb' && values.format !== 'png') {
-		console.error('--format must be rgb or png')
+	const port = Number(values.port)
+	const keySize = Number(values['key-size'])
+	const usageError =
+		values.format !== 'rgb' && values.format !== 'png'
+			? '--format must be rgb or png'
+			: !Number.isInteger(port) || port < 1 || port > 65535
+				? '--port must be an integer from 1 to 65535'
+				: !Number.isInteger(keySize) || keySize < 1
+					? '--key-size must be a positive integer'
+					: null
+	if (usageError) {
+		console.error(usageError)
 		process.exit(2)
 	}
 
@@ -111,14 +84,13 @@ function main(): void {
 		}
 	}
 
-	const keySize = Number(values['key-size'])
 	const session = new FakeDeckSession({
 		...DEFAULT_OPTIONS,
 		host: values.host,
-		port: Number(values.port),
+		port,
 		deviceId: values['device-id'],
 		keySize,
-		bitmapFormat: values.format,
+		bitmapFormat: values.format as 'rgb' | 'png',
 		ping: !values['no-ping'],
 	})
 	const sink = new ImageSink({
@@ -130,7 +102,7 @@ function main(): void {
 		},
 	})
 
-	session.on('line', (dir: 'in' | 'out', line: string) => record(`${dir === 'in' ? '<-' : '->'} ${summarise(line)}`))
+	session.on('line', (dir: 'in' | 'out', line: string) => record(`${dir === 'in' ? '<-' : '->'} ${summariseLine(line)}`))
 	session.on('log', (l: string) => {
 		record(`## ${l}`)
 		console.log(`# ${l}`)
@@ -140,16 +112,26 @@ function main(): void {
 	session.on('fatal', () => process.exit(1))
 
 	const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: 'deck> ' })
-	// readline does not await async handlers; chain commands so a press's release is sent before the next command.
+	const registered = new Promise<void>((resolve) => session.once('registered', () => resolve()))
+	let closed = false
+	// readline does not await async handlers; chain commands so a press's release is sent before the next
+	// command, and hold input (e.g. piped) until the deck has registered. `quit` never waits.
 	let pending = Promise.resolve()
 	rl.on('line', (input) => {
-		pending = pending.then(async () => {
-			if (!(await executeCommand(session, input))) rl.close()
-			else rl.prompt()
-		})
+		pending = pending
+			.then(async () => {
+				if (input.trim() !== 'quit') await registered
+				const keepGoing = await executeCommand(session, input)
+				if (closed) return
+				if (keepGoing) rl.prompt()
+				else rl.close()
+			})
+			.catch((err: Error) => console.error(`command failed: ${err.message}`))
 	})
 	rl.on('close', async () => {
-		await pending
+		closed = true
+		// Let queued commands finish, but don't hang on EOF if the deck never registers.
+		await Promise.race([pending, sleep(DEFAULT_OPTIONS.silenceTimeoutMs)])
 		session.stop()
 		setTimeout(() => process.exit(0), 300)
 	})

@@ -6,6 +6,7 @@ import {
 	formatLine,
 	parseCaps,
 	parseLine,
+	summariseLine,
 	toBool,
 } from '../src/protocol.ts'
 
@@ -121,5 +122,22 @@ describe('buildLayoutManifest', () => {
 	it('uses the requested key size', () => {
 		const manifest = JSON.parse(Buffer.from(buildLayoutManifest({ keySize: 128 }), 'base64').toString())
 		assert.deepEqual(manifest.stylePresets.key.bitmap, { w: 128, h: 128 })
+	})
+})
+
+describe('summariseLine', () => {
+	it('replaces a raw bitmap with its length and leaves other fields intact', () => {
+		assert.equal(
+			summariseLine('KEY-STATE CONTROLID="0/0" BITMAP="AAAA/w==" COLOR="#ff0000"'),
+			'KEY-STATE CONTROLID="0/0" BITMAP=<8 bytes> COLOR="#ff0000"'
+		)
+	})
+
+	it('marks data: URL bitmaps', () => {
+		assert.equal(summariseLine('KEY-STATE BITMAP="data:image/png;base64,AA=="'), 'KEY-STATE BITMAP=<26 bytes data-url>')
+	})
+
+	it('leaves lines without a bitmap unchanged', () => {
+		assert.equal(summariseLine('PONG 123'), 'PONG 123')
 	})
 })

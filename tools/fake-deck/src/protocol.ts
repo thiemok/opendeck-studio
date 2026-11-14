@@ -118,3 +118,11 @@ export function buildLayoutManifest(opts: { keySize: number }): string {
 	}
 	return Buffer.from(JSON.stringify(manifest)).toString('base64')
 }
+
+/** A protocol line for logs: the BITMAP payload is replaced by its length. */
+export function summariseLine(line: string): string {
+	return line.replace(
+		/BITMAP="([^"]*)"/,
+		(_m, b64: string) => `BITMAP=<${b64.length} bytes${b64.startsWith('data:') ? ' data-url' : ''}>`
+	)
+}

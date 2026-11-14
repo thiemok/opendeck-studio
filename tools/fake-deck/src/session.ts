@@ -6,6 +6,7 @@ import {
 	formatLine,
 	parseCaps,
 	parseLine,
+	summariseLine,
 	type LineArgs,
 	type Message,
 	type Params,
@@ -20,6 +21,7 @@ export interface SessionOptions {
 	ping: boolean
 	pingIntervalMs: number
 	silenceTimeoutMs: number
+	connectTimeoutMs: number
 	backoffInitialMs: number
 	backoffMaxMs: number
 	holdMs: number
@@ -28,6 +30,7 @@ export interface SessionOptions {
 interface SessionEvents {
 	log: [line: string]
 	line: [direction: 'in' | 'out', line: string]
+	registered: []
 	keyState: [params: Params]
 	clear: []
 	fatal: [message: string]
@@ -49,6 +52,7 @@ export const DEFAULT_OPTIONS: Omit<SessionOptions, 'host' | 'deviceId'> = {
 	ping: true,
 	pingIntervalMs: 2000,
 	silenceTimeoutMs: 5000,
+	connectTimeoutMs: 5000,
 	backoffInitialMs: 1000,
 	backoffMaxMs: 10000,
 	holdMs: 100,
@@ -118,8 +122,8 @@ export class FakeDeckSession extends EventEmitter<SessionEvents> {
 		socket.setNoDelay(true)
 		socket.setEncoding('utf8')
 		// A host that drops SYNs would otherwise hold this attempt for the OS connect timeout (~2 min).
-		socket.setTimeout(this.opts.silenceTimeoutMs, () => {
-			this.emit('log', `connect timed out after ${this.opts.silenceTimeoutMs} ms`)
+		socket.setTimeout(this.opts.connectTimeoutMs, () => {
+			this.emit('log', `connect timed out after ${this.opts.connectTimeoutMs} ms`)
 			socket.destroy()
 		})
 
@@ -139,7 +143,13 @@ export class FakeDeckSession extends EventEmitter<SessionEvents> {
 				this.#buffer = this.#buffer.slice(i + 1)
 				if (raw.trim() === '') continue
 				this.emit('line', 'in', raw)
-				this.#handle(parseLine(raw))
+				try {
+					this.#handle(parseLine(raw))
+				} catch (err) {
+					this.emit('log', `error handling "${summariseLine(raw)}": ${(err as Error).message}`)
+				}
+				// A fatal error stops the session; ignore whatever else this chunk carried.
+				if (this.#socket !== socket) break
 			}
 		})
 		socket.on('error', (err) => {
@@ -175,6 +185,7 @@ export class FakeDeckSession extends EventEmitter<SessionEvents> {
 					this.#attempt = 0
 					this.#setState('registered')
 					this.#startPing()
+					this.emit('registered')
 				} else {
 					this.emit('log', `ADD-DEVICE failed: ${msg.params.MESSAGE ?? '(no message)'}`)
 					this.#socket?.destroy()
@@ -253,7 +264,9 @@ export class FakeDeckSession extends EventEmitter<SessionEvents> {
 	}
 
 	#clearTimers(): void {
-		for (const t of [this.#pingTimer, this.#silenceTimer, this.#retryTimer]) if (t) clearTimeout(t)
+		if (this.#pingTimer) clearInterval(this.#pingTimer)
+		if (this.#silenceTimer) clearTimeout(this.#silenceTimer)
+		if (this.#retryTimer) clearTimeout(this.#retryTimer)
 		this.#pingTimer = this.#silenceTimer = this.#retryTimer = null
 	}
 }

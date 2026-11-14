@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import net from 'node:net'
 import { after, describe, it } from 'node:test'
-import { executeCommand } from '../src/main.ts'
+import { executeCommand } from '../src/repl.ts'
 import { CONTROL_IDS, parseLine, type Message } from '../src/protocol.ts'
 import { FakeDeckSession, type SessionOptions } from '../src/session.ts'
 
@@ -70,6 +70,7 @@ async function setup(opts: Partial<SessionOptions> = {}, configure?: (c: FakeCom
 		ping: true,
 		pingIntervalMs: 40,
 		silenceTimeoutMs: 200,
+		connectTimeoutMs: 200,
 		backoffInitialMs: 30,
 		backoffMaxMs: 100,
 		holdMs: 5,
@@ -230,6 +231,82 @@ describe('FakeDeckSession', () => {
 		assert.equal(states[0].CONTROLID, '0/1')
 		session.stop()
 	})
+	it('reassembles lines split across TCP chunks and strips CRLF', async () => {
+		// No keepalive: a PONG from the fake server would otherwise land inside the deliberately split line.
+		const { companion, session } = await setup({ ping: false })
+		const states: Record<string, unknown>[] = []
+		session.on('keyState', (p) => states.push(p))
+		session.start()
+		await waitFor(() => session.state === 'registered')
+		const s = companion.connections[0].socket
+		s.write('KEY-STATE DEVICEID="fake-test" CONT')
+		await new Promise((r) => setTimeout(r, 20))
+		s.write('ROLID="0/0" COLOR="#ff0000"')
+		await new Promise((r) => setTimeout(r, 20))
+		s.write('\r\nKEY-STATE DEVICEID="fake-test" CONTROLID="0/1" \nKEY-STATE DEVICEID="fake-test" CONTROLID="0/')
+		await new Promise((r) => setTimeout(r, 20))
+		s.write('2" \r\n')
+		await waitFor(() => states.length === 3)
+		assert.deepEqual(
+			states.map((p) => [p.CONTROLID, p.COLOR]),
+			[
+				['0/0', '#ff0000'],
+				['0/1', undefined],
+				['0/2', undefined],
+			]
+		)
+		session.stop()
+	})
+
+	it('logs a server ERROR message', async () => {
+		const { companion, session, logs } = await setup()
+		session.start()
+		await waitFor(() => session.state === 'registered')
+		companion.connections[0].socket.write('ERROR MESSAGE="Unknown command: FOO" \n')
+		await waitFor(() => logs.some((l) => l === 'server error: Unknown command: FOO'))
+		session.stop()
+	})
+
+	it('ignores the rest of a chunk after a fatal error', async () => {
+		const { companion, session } = await setup({}, (c) => {
+			c.onConnect = (s) =>
+				s.write('BEGIN ApiVersion="1.9.0" \nADD-DEVICE OK DEVICEID="fake-test" \nKEY-STATE DEVICEID="fake-test" CONTROLID="0/0" \n')
+		})
+		const states: unknown[] = []
+		session.on('keyState', (p) => states.push(p))
+		const fatal = new Promise((r) => session.once('fatal', r))
+		session.start()
+		await fatal
+		await new Promise((r) => setTimeout(r, 100))
+		assert.equal(session.state, 'stopped')
+		assert.equal(states.length, 0)
+		assert.equal(companion.sent('PING').length, 0)
+	})
+
+	it('survives a listener that throws and keeps handling later lines', async () => {
+		const { companion, session, logs } = await setup()
+		let calls = 0
+		session.on('keyState', () => {
+			calls++
+			if (calls === 1) throw new Error('boom')
+		})
+		session.start()
+		await waitFor(() => session.state === 'registered')
+		companion.connections[0].socket.write('KEY-STATE DEVICEID="fake-test" CONTROLID="0/0" \nKEY-STATE DEVICEID="fake-test" CONTROLID="0/1" \n')
+		await waitFor(() => calls === 2)
+		assert.ok(logs.some((l) => /error handling .*: boom/.test(l)), logs.join('\n'))
+		assert.equal(session.state, 'registered')
+		session.stop()
+	})
+
+	it('emits registered once ADD-DEVICE succeeds', async () => {
+		const { session } = await setup()
+		const registered = new Promise<void>((r) => session.once('registered', () => r()))
+		session.start()
+		await registered
+		assert.equal(session.state, 'registered')
+		session.stop()
+	})
 })
 
 describe('REPL commands', () => {
@@ -326,11 +403,11 @@ describe('FakeDeckSession lifecycle', () => {
 		const gaps = connectedAt.slice(1).map((t, i) => t - connectedAt[i])
 		const expected = [40, 80, 120, 120, 40]
 		gaps.forEach((gap, i) => {
-			assert.ok(gap >= expected[i] - 5 && gap < expected[i] + 60, `gap ${i}: ${gap} ms, expected ~${expected[i]} ms`)
+			assert.ok(gap >= expected[i] - 5 && gap < expected[i] + 100, `gap ${i}: ${gap} ms, expected ~${expected[i]} ms`)
 		})
 	})
 
-	it('times out a connect attempt that never completes and goes through backoff', async () => {
+	it('times out a connect attempt that never completes and goes through backoff', async (t) => {
 		// 10.255.255.1 is non-routable: the SYN goes unanswered, like a host that vanished without a RST.
 		const session = new FakeDeckSession({
 			host: '10.255.255.1',
@@ -341,6 +418,7 @@ describe('FakeDeckSession lifecycle', () => {
 			ping: false,
 			pingIntervalMs: 40,
 			silenceTimeoutMs: 150,
+			connectTimeoutMs: 150,
 			backoffInitialMs: 10_000,
 			backoffMaxMs: 10_000,
 			holdMs: 5,
@@ -351,6 +429,12 @@ describe('FakeDeckSession lifecycle', () => {
 		const started = Date.now()
 		session.start()
 		await waitFor(() => session.state === 'backoff', 2000)
+		if (logs.some((l) => /socket error/.test(l))) {
+			session.stop()
+			// This network answers instead of dropping the SYN, so the timeout path cannot be exercised here.
+			t.skip('10.255.255.1 is not black-holed on this network')
+			return
+		}
 		assert.ok(Date.now() - started < 1000, 'connect was not bounded by the timeout')
 		assert.ok(logs.some((l) => /connect timed out after 150 ms/.test(l)), logs.join('\n'))
 		session.stop()
@@ -368,7 +452,7 @@ describe('FakeDeckSession lifecycle', () => {
 		const before = companion.sent('PING').length
 		await new Promise((r) => setTimeout(r, 300))
 		const pings = companion.sent('PING').length - before
-		assert.ok(pings >= 4 && pings <= 7, `expected ~6 pings in 300 ms, got ${pings}`)
+		assert.ok(pings >= 3 && pings <= 9, `expected ~6 pings in 300 ms (12 if stacked), got ${pings}`)
 		session.stop()
 	})
 

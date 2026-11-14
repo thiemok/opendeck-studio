@@ -51,6 +51,8 @@ deck> push           # press + release encoder
 deck> quit           # sends QUIT
 ```
 
+Commands run one at a time, and any typed or piped before the deck has registered wait until it has. Scripted runs work too: `printf 'press 0\nrotate +3\n' | npm start -- --port 26622`. At end of input the deck sends QUIT, so Companion's final image updates may arrive after it has gone.
+
 Options (`--help`): `--host`, `--port`, `--key-size <px>` (square key bitmaps, default 72), `--format rgb|png`, `--device-id`, `--out <dir>`, `--no-ping`.
 
 `--no-ping` sends no keepalive and disables the 5 s silence watchdog, so only the server ends the session. Use it to measure Companion's idle timeout.
