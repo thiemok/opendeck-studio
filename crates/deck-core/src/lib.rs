@@ -4,3 +4,7 @@
 //! and flash through the `embedded-storage` traits, so `cargo test` runs it all
 //! on a desktop toolchain.
 #![cfg_attr(not(test), no_std)]
+
+pub mod base64;
+pub mod line;
+pub mod session;
