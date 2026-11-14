@@ -1,4 +1,5 @@
 fn main() {
+    wifi_credentials();
     linker_be_nice();
     check_xtensa_linker_available();
     // make sure linkall.x is the last linker script (otherwise might cause problems with flip-link)
@@ -129,4 +130,31 @@ fn linker_be_nice() {
         "cargo:rustc-link-arg=-Wl,--error-handling-script={}",
         std::env::current_exe().unwrap().display()
     );
+}
+
+/// Passes `DECK_WIFI_SSID` and `DECK_WIFI_PASSWORD` from the gitignored `wifi.env`
+/// to the compiler (KTD11). A missing file or key fails the build with instructions.
+fn wifi_credentials() {
+    const FILE: &str = "wifi.env";
+    const KEYS: [&str; 2] = ["DECK_WIFI_SSID", "DECK_WIFI_PASSWORD"];
+    println!("cargo:rerun-if-changed={FILE}");
+
+    let text = std::fs::read_to_string(FILE).unwrap_or_else(|_| {
+        panic!(
+            "firmware/{FILE} is missing. Copy firmware/wifi.env.example to firmware/{FILE} \
+             and set the WPA2 network's SSID and password."
+        )
+    });
+    for key in KEYS {
+        let value = text
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.starts_with('#'))
+            .filter_map(|line| line.split_once('='))
+            .find(|(k, _)| k.trim() == key)
+            .map(|(_, v)| v.trim().trim_matches('"'))
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| panic!("firmware/{FILE} has no {key}=... line"));
+        println!("cargo:rustc-env={key}={value}");
+    }
 }
