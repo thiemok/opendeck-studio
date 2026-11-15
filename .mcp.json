@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "companion": {
+      "command": "uvx",
+      "args": [
+        "--with",
+        "mcp>=1,<2",
+        "--from",
+        "git+https://github.com/drohi-r/companion-mcp@ef26ca81ac459883b0d8af1d8b1f122dd4eab9bc",
+        "companion-mcp"
+      ],
+      "env": {
+        "COMPANION_HOST": "127.0.0.1",
+        "COMPANION_PORT": "18000",
+        "COMPANION_ALLOWED_HOSTS": "127.0.0.1,localhost,::1",
+        "COMPANION_WRITE_ENABLED": "1",
+        "COMPANION_SNAPSHOT_DIR": "tools/fake-deck/out/companion-mcp/snapshots",
+        "COMPANION_PRESET_DIR": "tools/fake-deck/out/companion-mcp/presets"
+      }
+    }
+  }
+}
