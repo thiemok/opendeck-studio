@@ -182,7 +182,6 @@ impl<'a> Iterator for Params<'a> {
             }
             let token_end = s.find([' ', '=']).unwrap_or(s.len());
             if s.as_bytes().get(token_end) != Some(&b'=') {
-                // A bare token such as a PING payload: no value to offer.
                 self.rest = &s[token_end..];
                 continue;
             }

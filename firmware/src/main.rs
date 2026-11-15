@@ -45,6 +45,12 @@ pub static HOST: Mutex<CriticalSectionRawMutex, Cell<Option<HostConfig>>> =
 /// Raised by the console when the host is set or cleared, so the link reconnects at once.
 pub static HOST_CHANGED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
+/// Replaces the saved host and wakes the link so it reconnects at once.
+pub fn set_host(host: Option<HostConfig>) {
+    HOST.lock(|h| h.set(host));
+    HOST_CHANGED.signal(());
+}
+
 /// Holds the longest `KEY-STATE` line: a 128×128 `rgb` bitmap is 65,536 B of base64 (KTD15).
 static LINE_BUF: ConstStaticCell<[u8; 72 * 1024]> = ConstStaticCell::new([0; 72 * 1024]);
 static RX_BUF: ConstStaticCell<[u8; 8 * 1024]> = ConstStaticCell::new([0; 8 * 1024]);
@@ -53,7 +59,7 @@ static CHUNK_BUF: ConstStaticCell<[u8; 2 * 1024]> = ConstStaticCell::new([0; 2 *
 static OUT_BUF: ConstStaticCell<[u8; 1024]> = ConstStaticCell::new([0; 1024]);
 static SPI_BUF: ConstStaticCell<[u8; 1024]> = ConstStaticCell::new([0; 1024]);
 
-/// How long the calibration pattern stays up at boot (U8).
+/// How long the calibration pattern stays up at boot.
 const TEST_PATTERN_TIME: Duration = Duration::from_secs(3);
 
 #[allow(
@@ -101,7 +107,6 @@ async fn main(spawner: Spawner) -> ! {
     }
     HOST.lock(|h| h.set(saved));
 
-    // Wiring (P2): SCK 5, MOSI 19, CS 33, DC 27, RST 15, backlight 14, KEY 32.
     let _backlight = Output::new(peripherals.GPIO14, Level::High, OutputConfig::default());
     let spi = Spi::new(
         peripherals.SPI2,

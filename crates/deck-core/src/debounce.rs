@@ -1,6 +1,6 @@
 //! Key debouncing: an edge counts once the level has been stable for the interval (KTD18).
 
-/// Default stable time before an edge counts. U8's bench run may tune it.
+/// Default stable time before an edge counts.
 pub const DEFAULT_INTERVAL_MS: u64 = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

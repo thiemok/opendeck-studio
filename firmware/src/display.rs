@@ -2,8 +2,8 @@
 
 use deck_core::bitmap::{self, BitmapError};
 use deck_core::session::KEY_SIZE;
-use embedded_graphics::mono_font::MonoTextStyle;
 use embedded_graphics::mono_font::ascii::{FONT_6X10, FONT_9X15_BOLD};
+use embedded_graphics::mono_font::{MonoFont, MonoTextStyle};
 use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::pixelcolor::raw::RawU16;
 use embedded_graphics::prelude::*;
@@ -18,7 +18,7 @@ use mipidsi::interface::SpiInterface;
 use mipidsi::models::ST7735s;
 use mipidsi::options::{ColorInversion, ColorOrder};
 
-/// Panel calibration, confirmed on the bench in U8 and recorded in `docs/notes/deck-wiring.md`.
+/// Panel calibration, recorded in `docs/notes/deck-wiring.md`.
 pub mod calibration {
     use super::{ColorInversion, ColorOrder};
 
@@ -31,6 +31,9 @@ pub mod calibration {
 type SpiDevice = ExclusiveDevice<Spi<'static, Blocking>, Output<'static>, Delay>;
 type Panel =
     mipidsi::Display<SpiInterface<'static, SpiDevice, Output<'static>>, ST7735s, Output<'static>>;
+
+/// How many `FONT_6X10` characters fit across the 128 px key.
+const HOST_CHARS_PER_LINE: usize = 21;
 
 /// What the key shows while it is not registered with Companion (KTD17).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,8 +106,11 @@ impl KeyDisplay {
             }
             Status::Connecting { host } => {
                 self.text_centered("Connecting", 52, &FONT_9X15_BOLD);
-                // FONT_6X10 fits 21 characters across; longer hosts are cut.
-                self.text_centered(host.get(..21).unwrap_or(host), 78, &FONT_6X10);
+                self.text_centered(
+                    host.get(..HOST_CHARS_PER_LINE).unwrap_or(host),
+                    78,
+                    &FONT_6X10,
+                );
             }
         }
     }
@@ -127,12 +133,7 @@ impl KeyDisplay {
         let _ = self.panel.clear(color);
     }
 
-    fn text_centered(
-        &mut self,
-        text: &str,
-        y: i32,
-        font: &'static embedded_graphics::mono_font::MonoFont<'static>,
-    ) {
+    fn text_centered(&mut self, text: &str, y: i32, font: &'static MonoFont<'static>) {
         let style = MonoTextStyle::new(font, Rgb565::WHITE);
         let _ = Text::with_alignment(
             text,

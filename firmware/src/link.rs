@@ -27,6 +27,13 @@ pub struct Buffers {
     pub out: &'static mut [u8],
 }
 
+/// The socket's receive, transmit and read-chunk buffers, lent to each connection attempt.
+struct SocketBuffers {
+    rx: &'static mut [u8],
+    tx: &'static mut [u8],
+    chunk: &'static mut [u8],
+}
+
 /// What the key currently shows when not registered, so it is redrawn only on change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Shown {
@@ -63,6 +70,7 @@ pub async fn run(
     } = bufs;
     let mut framer = LineFramer::new(line);
     let mut out = LineWriter::new(out);
+    let mut sockets = SocketBuffers { rx, tx, chunk };
     let mut shown: Option<Shown> = None;
 
     loop {
@@ -99,21 +107,17 @@ pub async fn run(
             &mut display,
             &mut framer,
             &mut out,
-            rx,
-            tx,
-            chunk,
+            &mut sockets,
         )
         .await;
+        session.closed(now_ms());
         let Some(ended) = ended else {
-            session.closed(now_ms());
             continue;
         };
         info!("Companion link ended: {ended:?}");
-        session.closed(now_ms());
         if ended == Ended::HostChanged {
             session.reconnect_now();
         }
-        // Back to a status screen until the next `ADD-DEVICE OK` (R7).
         shown = None;
     }
 }
@@ -127,10 +131,6 @@ async fn wait_for_change(timeout: Duration, session: &mut Session) {
 
 /// One connection attempt. `None` means it never connected.
 #[allow(
-    clippy::too_many_arguments,
-    reason = "the buffers are borrowed per attempt"
-)]
-#[allow(
     clippy::large_stack_frames,
     reason = "about 1-1.6 KB, mostly log formatting; the main task stack has far more room"
 )]
@@ -141,9 +141,7 @@ async fn connect_and_serve(
     display: &mut KeyDisplay,
     framer: &mut LineFramer<'_>,
     out: &mut LineWriter<'_>,
-    rx: &mut [u8],
-    tx: &mut [u8],
-    chunk: &mut [u8],
+    sockets: &mut SocketBuffers,
 ) -> Option<Ended> {
     // Resolved on every attempt; an IP literal returns without a query.
     let address = match stack.dns_query(config.host(), DnsQueryType::A).await {
@@ -154,7 +152,7 @@ async fn connect_and_serve(
         }
     };
 
-    let mut socket = TcpSocket::new(stack, rx, tx);
+    let mut socket = TcpSocket::new(stack, sockets.rx, sockets.tx);
     socket.set_nagle_enabled(false);
     match with_timeout(CONNECT_TIMEOUT, socket.connect((address, config.port))).await {
         Ok(Ok(())) => {}
@@ -174,7 +172,7 @@ async fn connect_and_serve(
     framer.reset();
     out.clear();
 
-    let ended = serve(&mut socket, session, display, framer, out, chunk).await;
+    let ended = serve(&mut socket, session, display, framer, out, sockets.chunk).await;
     socket.abort();
     Some(ended)
 }

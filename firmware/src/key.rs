@@ -7,8 +7,8 @@ use embassy_time::{Duration, Instant, Ticker};
 use esp_hal::gpio::Input;
 use log::info;
 
-/// The KEY line reads low while pressed (internal pull-up). Confirmed on the bench in U8.
-pub const ACTIVE_LOW: bool = true;
+/// The KEY line reads low while pressed (internal pull-up).
+const ACTIVE_LOW: bool = true;
 const SAMPLE_PERIOD: Duration = Duration::from_millis(2);
 
 /// Debounced edges for the link: `true` = pressed. Full means the link is busy; an edge

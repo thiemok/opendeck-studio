@@ -4,9 +4,10 @@
 //! ROM routine at the same 115200 baud, so log output and replies share the port.
 
 use crate::config_store::ConfigStore;
-use crate::{HOST, HOST_CHANGED};
+use crate::{HOST, set_host};
 use deck_core::config::HostConfig;
 use deck_core::console::{self, Command, ConsoleError};
+use embassy_time::{Duration, Timer};
 use esp_hal::Async;
 use esp_hal::uart::UartRx;
 use esp_println::{print, println};
@@ -21,6 +22,8 @@ pub async fn console_task(mut rx: UartRx<'static, Async>, mut store: ConfigStore
     println!("console ready; type `help`");
     loop {
         let Ok(n) = rx.read_async(&mut chunk).await else {
+            // Back off so a persistent UART error can't starve the other tasks.
+            Timer::after(Duration::from_millis(10)).await;
             continue;
         };
         for &byte in &chunk[..n] {
@@ -47,17 +50,19 @@ pub async fn console_task(mut rx: UartRx<'static, Async>, mut store: ConfigStore
     }
 }
 
+#[allow(
+    clippy::large_stack_frames,
+    reason = "about 1 KB, mostly reply formatting; runs on the console task's stack"
+)]
 fn run(text: &str, store: &mut ConfigStore) {
     match console::parse(text) {
         Ok(Command::SetHost { host, port }) => {
-            // `parse` already validated the host, so `new` succeeds.
             let Some(config) = HostConfig::new(host, port) else {
                 return;
             };
             match store.save(&config) {
                 Ok(()) => {
-                    HOST.lock(|h| h.set(Some(config)));
-                    HOST_CHANGED.signal(());
+                    set_host(Some(config));
                     println!("host set to {host}:{port}; reconnecting");
                 }
                 Err(e) => println!("could not save the host: {e:?}"),
@@ -65,8 +70,7 @@ fn run(text: &str, store: &mut ConfigStore) {
         }
         Ok(Command::ClearHost) => match store.clear() {
             Ok(()) => {
-                HOST.lock(|h| h.set(None));
-                HOST_CHANGED.signal(());
+                set_host(None);
                 println!("host cleared");
             }
             Err(e) => println!("could not clear the host: {e:?}"),

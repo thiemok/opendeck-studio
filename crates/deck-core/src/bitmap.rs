@@ -21,7 +21,6 @@ pub fn rgb565_pixels(b64: &str, width: u16, height: u16) -> Result<Pixels<'_>, B
     if actual != expected {
         return Err(BitmapError::WrongLength { expected, actual });
     }
-    // An exact multiple of 3 bytes has no padding, so every pixel is exactly 4 characters.
     Ok(Pixels { text })
 }
 
@@ -37,24 +36,27 @@ fn validate(text: &[u8]) -> Result<usize, BitmapError> {
         .take_while(|&&c| c == b'=')
         .count();
     let body = &text[..text.len() - padding];
-    if body.iter().all(|&c| sextet(c).is_some()) {
+    if body.iter().all(|&c| SEXTETS[usize::from(c)] != INVALID) {
         Ok(padding)
     } else {
         Err(BitmapError::InvalidBase64)
     }
 }
 
-fn sextet(c: u8) -> Option<u32> {
-    let v = match c {
-        b'A'..=b'Z' => c - b'A',
-        b'a'..=b'z' => c - b'a' + 26,
-        b'0'..=b'9' => c - b'0' + 52,
-        b'+' => 62,
-        b'/' => 63,
-        _ => return None,
-    };
-    Some(u32::from(v))
-}
+const INVALID: u8 = 0xff;
+
+/// Base64 character to its 6-bit value, or `INVALID`. A table because the decode
+/// loop runs for every character of a 65 KB line.
+const SEXTETS: [u8; 256] = {
+    let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut table = [INVALID; 256];
+    let mut i = 0;
+    while i < alphabet.len() {
+        table[alphabet[i] as usize] = i as u8;
+        i += 1;
+    }
+    table
+};
 
 /// RGB565 pixels decoded on demand, four base64 characters per pixel.
 pub struct Pixels<'a> {
@@ -67,10 +69,9 @@ impl Iterator for Pixels<'_> {
     fn next(&mut self) -> Option<u16> {
         let (quad, rest) = self.text.split_first_chunk::<4>()?;
         self.text = rest;
-        // Validated in `rgb565_pixels`, so every character maps.
-        let n = quad
-            .iter()
-            .fold(0u32, |acc, &c| (acc << 6) | sextet(c).unwrap_or(0));
+        let n = quad.iter().fold(0u32, |acc, &c| {
+            (acc << 6) | u32::from(SEXTETS[usize::from(c)])
+        });
         let (r, g, b) = ((n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff);
         Some((((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)) as u16)
     }
