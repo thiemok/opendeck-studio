@@ -16,4 +16,6 @@ The routine only works if the blocks end up back to back in `.rwtext`. Recent to
 
 **How it was found:** single-character UART writes (`0x3FF4_0000`) between the steps of `Reset` printed `1234` and stopped. The disassembly then showed `Reset` ending at `memw`, with `wsr.vecbase` placed at a lower address.
 
-**Removing it:** delete this directory and the `[patch.crates-io]` entry once an upstream xtensa-lx-rt release keeps `Reset` in one block. Check with `xtensa-esp32-elf-objdump -d` that `wsr.vecbase` follows `memw` inside `<Reset>`, then confirm the boot on hardware.
+**Upstream status:** fixed on esp-hal `main` by [esp-rs/esp-hal#6497](https://github.com/esp-rs/esp-hal/pull/6497) (merged 2026-10-15), which makes the same change. As of 2026-11-15 no xtensa-lx-rt release contains it; the newest is 0.23.0 from 2026-08-24.
+
+**Removing it:** delete this directory and the `[patch.crates-io]` entry once an xtensa-lx-rt release newer than 0.23.0 ships with #6497. Check with `xtensa-esp32-elf-objdump -d` that `wsr.vecbase` follows `memw` inside `<Reset>`, then confirm the boot on hardware.
