@@ -6,7 +6,7 @@ use crate::display::{KeyDisplay, Status};
 use crate::{HOST, HOST_CHANGED, key};
 use deck_core::config::HostConfig;
 use deck_core::line::{Frame, LineFramer, LineWriter, Message};
-use deck_core::session::{Event, Session};
+use deck_core::session::{Event, SILENCE_TIMEOUT_MS, Session};
 use embassy_futures::select::{Either, Either3, select, select3};
 use embassy_net::Stack;
 use embassy_net::dns::DnsQueryType;
@@ -17,6 +17,14 @@ use log::{debug, info, warn};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const TICK: Duration = Duration::from_millis(100);
+/// Longest a send may wait for room in the TX buffer. Unacknowledged data from a host that
+/// vanished silently fills it, and `write_all` would otherwise wait forever, starving the
+/// silence watchdog and `HOST_CHANGED`. Same bound as the silence watchdog.
+const WRITE_TIMEOUT: Duration = Duration::from_millis(SILENCE_TIMEOUT_MS);
+/// smoltcp closes the socket when nothing arrives for this long. A live link answers the
+/// 2 s `PING` with a `PONG`, so this only trips on a dead peer; backstop for any wait
+/// other than the write.
+const SOCKET_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Buffers the link needs, all static so nothing large sits on a stack.
 pub struct Buffers {
@@ -154,6 +162,7 @@ async fn connect_and_serve(
 
     let mut socket = TcpSocket::new(stack, sockets.rx, sockets.tx);
     socket.set_nagle_enabled(false);
+    socket.set_timeout(Some(SOCKET_TIMEOUT));
     match with_timeout(CONNECT_TIMEOUT, socket.connect((address, config.port))).await {
         Ok(Ok(())) => {}
         Ok(Err(e)) => {
@@ -258,11 +267,17 @@ async fn serve(
 
         match out.bytes() {
             Some([]) => {}
-            Some(bytes) => {
-                if socket.write_all(bytes).await.is_err() {
-                    return Ended::Closed;
+            Some(bytes) => match with_timeout(WRITE_TIMEOUT, socket.write_all(bytes)).await {
+                Ok(Ok(())) => {}
+                Ok(Err(_)) => return Ended::Closed,
+                Err(_) => {
+                    warn!(
+                        "send blocked for {} ms; dropping the link",
+                        WRITE_TIMEOUT.as_millis()
+                    );
+                    return Ended::Silence;
                 }
-            }
+            },
             None => warn!("outgoing line buffer overflowed; dropped"),
         }
         out.clear();
