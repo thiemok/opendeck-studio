@@ -156,6 +156,7 @@ Measured on 2026-11-15 with the P2 firmware on a Feather ESP32 V2 (ESP32-PICO-V3
 | Half-open link (`docker pause`) | silence watchdog fired 4.8 s after the pause; registered 0.1 s after `docker unpause` |
 | Host changed over serial | old link dropped at once (`HostChanged`); registered 90 ms after a correct `host` command |
 | Unreachable host | each connect attempt times out after 5 s and is retried with backoff |
+| Wi-Fi lost (access point off for about 1 min 45 s) | IPv4 went down at the disconnect, so the key shows "No Wi-Fi". Rejoin attempts ran every 6.6 s. After the access point returned, the deck rejoined (on another mesh node) and registered with Companion 0.55 s after the Wi-Fi join; the key image followed at 0.73 s. |
 | Presses while not registered | dropped, not queued. Companion's count did not change, and no `KEY-PRESS` was sent after reconnecting. |
 
 **Differences from the fake deck:**
