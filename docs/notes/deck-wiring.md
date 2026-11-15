@@ -31,7 +31,7 @@ The pins are set in `firmware/src/main.rs`.
 | Panel offset (x, y) in the 132×162 RAM | `(2, 1)` in `firmware/src/display.rs` | Correct. The test border sits exactly on the glass edge. Its corners are hidden by the panel's rounded corners, which is expected. |
 | Colour order | `Bgr` | Correct |
 | Colour inversion | `Inverted` | Required. With `Normal`, every colour showed as its complement (red as cyan, white as black). |
-| SPI clock | 20 MHz, mode 0 | Works. A full 128×128 frame draws in 40–45 ms. |
+| SPI clock | 20 MHz, mode 0 | Works. A full 128×128 frame decodes and draws in 26 ms. |
 | KEY when pressed | low (`ACTIVE_LOW` in `firmware/src/key.rs`) | Confirmed |
 | KEY needs the internal pull-up | yes | Works with only the internal pull-up |
 | Debounce interval | 20 ms | 20 presses logged exactly 20 `key pressed` and 20 `key released` |

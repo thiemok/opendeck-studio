@@ -148,7 +148,7 @@ Measured on 2026-11-15 with the P2 firmware on a Feather ESP32 V2 (ESP32-PICO-V3
 
 | Measurement | Result |
 |---|---|
-| One 128×128 `rgb` key image (65,646 B line) | received in 193–357 ms, drawn in 40–45 ms |
+| One 128×128 `rgb` key image (65,646 B line) | received in 193–470 ms, drawn in 26 ms with a table-driven base64 decode (40–45 ms with a `match` per character) |
 | Key press to Companion's redrawn image | about 330 ms after release, then about 45 ms to draw |
 | Free heap | 135,628 B at boot, about 90,000 B after registration (72 KB line buffer static) |
 | Companion stopped (`docker stop`) | link closed the moment the container exited; key back to "Connecting" |
