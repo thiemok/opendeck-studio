@@ -157,6 +157,7 @@ Measured on 2026-11-15 with the P2 firmware on a Feather ESP32 V2 (ESP32-PICO-V3
 | Host changed over serial | old link dropped at once (`HostChanged`); registered 90 ms after a correct `host` command |
 | Unreachable host | each connect attempt times out after 5 s and is retried with backoff |
 | Wi-Fi lost (access point off for about 1 min 45 s) | IPv4 went down at the disconnect, so the key shows "No Wi-Fi". Rejoin attempts ran every 6.6 s. After the access point returned, the deck rejoined (on another mesh node) and registered with Companion 0.55 s after the Wi-Fi join; the key image followed at 0.73 s. |
+| Companion port blocked with a firewall DROP while pressing (`DOCKER-USER`, container port 16622) | the link ended as `Closed` 1 s after the 6th press, and the key showed "Connecting". The firmware never logged "send blocked", so the 5 s send timeout never fired. 10 presses went out in all, and later presses did not stall the deck. It registered again by itself 17 s later, after the rule was removed. The exact moment the rule took effect is unknown, because `PONG` is logged only at debug level. A DROP rule on `INPUT` for port 26622 does nothing: Docker forwards the published port to the container rather than delivering it to the host. |
 | Presses while not registered | dropped, not queued. Companion's count did not change, and no `KEY-PRESS` was sent after reconnecting. |
 
 **Differences from the fake deck:**
