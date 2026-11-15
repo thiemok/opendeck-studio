@@ -1,0 +1,10 @@
+[package]
+name = "deck-core"
+version = "0.1.0"
+description = "Host-tested, no_std logic for the opendeck firmware: Satellite codec, session, decoding, debounce, console and config."
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+embedded-storage = "0.3.2"

@@ -36,6 +36,15 @@ Page 1, row 0 then holds:
 
 All three controls show `count`, so any input visibly changes every image. `companion-config/make-page.ts` generates the import file: `node companion-config/make-page.ts > companion-config/fake-deck-page.companionconfig`.
 
+### Companion MCP (optional)
+
+The repo's `.mcp.json` registers the community [drohi-r/companion-mcp](https://github.com/drohi-r/companion-mcp) server (Apache-2.0) as `companion` for Claude Code. It points at this container (`127.0.0.1:18000`), and agents can use it to inspect pages, press buttons and set variables without the web UI.
+
+- **Pinned:** commit `ef26ca8`, run through `uvx`. It needs `uv`. The server declares `mcp>=1.0` with no upper bound, and mcp 2.x renamed `FastMCP`, so `.mcp.json` adds `--with "mcp>=1,<2"`.
+- **Safety:** only localhost is allowed (`COMPANION_ALLOWED_HOSTS`). Snapshots and presets go to the gitignored `out/companion-mcp/`. Set `COMPANION_WRITE_ENABLED=0` for read-only use.
+- **Limit with Companion 5:** the imported test buttons are `button-layered`, and the server reads their text and colours as `null`. Page discovery, presses and variables work. Treat its style tools as unverified on layered buttons, and use the import file or the web UI to change button layouts.
+- **First use:** Claude Code asks you to approve the project's MCP servers, and new servers load at the next session start.
+
 ## 2. Run the fake deck
 
 ```bash

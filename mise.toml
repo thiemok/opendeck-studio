@@ -1,0 +1,13 @@
+# Pinned tools for the opendeck firmware and its host-tested core crate.
+# mise runs via shims here, so run commands through `mise exec --` or `mise run`.
+# First setup: `mise trust && mise install && mise run esp-toolchain`.
+
+[tools]
+rust = { version = "1.100.0", components = "clippy,rustfmt" }
+"cargo:espup" = "0.19.0"
+"cargo:espflash" = "4.7.0"
+"cargo:esp-generate" = "2.0.0"
+
+[tasks.esp-toolchain]
+description = "Install the pinned esp Xtensa toolchain into the default rustup home"
+run = "mkdir -p {{config_root}}/.esp && espup install --toolchain-version 1.100.0.0 --targets esp32 --export-file {{config_root}}/.esp/export-esp.sh"

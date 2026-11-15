@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="640" viewBox="0 0 960 640" font-family="Helvetica, Arial, sans-serif" role="img" aria-labelledby="title desc">
+  <title id="title">Deck wiring: Feather ESP32 V2 to one ScreenKey</title>
+  <desc id="desc">Nine wires connect the Adafruit Feather ESP32 V2 to a Waveshare 0.85 inch ScreenKey Module B: 3V to VCC, GND to GND, MO (GPIO19) to DIN, SCK (GPIO5) to SCLK, GPIO33 to CS, GPIO27 to DC, GPIO15 to RST, GPIO14 to PWM and GPIO32 to KEY.</desc>
+
+  <!-- Opaque background so the diagram reads the same in light and dark viewers. -->
+  <rect x="0" y="0" width="960" height="640" rx="12" fill="#ffffff"/>
+
+  <text x="480" y="38" text-anchor="middle" font-size="22" font-weight="700" fill="#1a1a1a">Deck wiring (P2): one ScreenKey on the Feather ESP32 V2</text>
+  <text x="480" y="62" text-anchor="middle" font-size="13" fill="#555">Source of truth: the pin table in deck-wiring.md and firmware/src/main.rs. Update this diagram whenever either changes.</text>
+
+  <!-- Feather ESP32 V2 -->
+  <rect x="60" y="110" width="270" height="440" rx="14" fill="#e9f1fb" stroke="#3a4a5c" stroke-width="2"/>
+  <rect x="155" y="92" width="80" height="22" rx="5" fill="#b9c3cf" stroke="#3a4a5c" stroke-width="1.5"/>
+  <text x="195" y="108" text-anchor="middle" font-size="11" font-weight="700" fill="#1a1a1a">USB-C</text>
+  <text x="195" y="140" text-anchor="middle" font-size="16" font-weight="700" fill="#1a1a1a">Adafruit Feather</text>
+  <text x="195" y="160" text-anchor="middle" font-size="16" font-weight="700" fill="#1a1a1a">ESP32 V2</text>
+  <text x="195" y="530" text-anchor="middle" font-size="11" fill="#555">labels as on the silkscreen;</text>
+  <text x="195" y="544" text-anchor="middle" font-size="11" fill="#555">grouped by signal, not position</text>
+
+  <!-- ScreenKey Module B -->
+  <rect x="630" y="110" width="270" height="440" rx="14" fill="#f3f1ec" stroke="#4d4636" stroke-width="2"/>
+  <text x="765" y="140" text-anchor="middle" font-size="16" font-weight="700" fill="#1a1a1a">Waveshare 0.85" ScreenKey</text>
+  <text x="765" y="160" text-anchor="middle" font-size="16" font-weight="700" fill="#1a1a1a">Module B (ST7735)</text>
+  <!-- key cap with the 128×128 LCD -->
+  <rect x="770" y="230" width="110" height="110" rx="10" fill="#2b2b2b" stroke="#111" stroke-width="2"/>
+  <rect x="785" y="245" width="80" height="80" rx="3" fill="#5a7fa8"/>
+  <text x="825" y="282" text-anchor="middle" font-size="11" fill="#ffffff">LCD</text>
+  <text x="825" y="297" text-anchor="middle" font-size="11" fill="#ffffff">128×128</text>
+  <text x="825" y="360" text-anchor="middle" font-size="11" fill="#555">pins listed in</text>
+  <text x="825" y="374" text-anchor="middle" font-size="11" fill="#555">Waveshare's header order</text>
+
+  <!-- Wires: one row per ScreenKey header pin, in header order. -->
+  <g font-size="13">
+    <!-- 1 VCC -->
+    <line x1="330" y1="200" x2="630" y2="200" stroke="#d62728" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="330" cy="200" r="6" fill="#d62728"/><circle cx="630" cy="200" r="6" fill="#d62728"/>
+    <text x="315" y="205" text-anchor="end" font-weight="700" fill="#1a1a1a">3V</text>
+    <text x="645" y="205" font-weight="700" fill="#1a1a1a">VCC</text>
+    <text x="480" y="192" text-anchor="middle" fill="#333">3.3 V power</text>
+
+    <!-- 2 GND -->
+    <line x1="330" y1="236" x2="630" y2="236" stroke="#222222" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="330" cy="236" r="6" fill="#222222"/><circle cx="630" cy="236" r="6" fill="#222222"/>
+    <text x="315" y="241" text-anchor="end" font-weight="700" fill="#1a1a1a">GND</text>
+    <text x="645" y="241" font-weight="700" fill="#1a1a1a">GND</text>
+    <text x="480" y="228" text-anchor="middle" fill="#333">ground</text>
+
+    <!-- 3 DIN -->
+    <line x1="330" y1="272" x2="630" y2="272" stroke="#1f77b4" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="330" cy="272" r="6" fill="#1f77b4"/><circle cx="630" cy="272" r="6" fill="#1f77b4"/>
+    <text x="315" y="277" text-anchor="end" font-weight="700" fill="#1a1a1a">MO · GPIO19</text>
+    <text x="645" y="277" font-weight="700" fill="#1a1a1a">DIN</text>
+    <text x="480" y="264" text-anchor="middle" fill="#333">SPI data (MOSI)</text>
+
+    <!-- 4 SCLK -->
+    <line x1="330" y1="308" x2="630" y2="308" stroke="#d9a400" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="330" cy="308" r="6" fill="#d9a400"/><circle cx="630" cy="308" r="6" fill="#d9a400"/>
+    <text x="315" y="313" text-anchor="end" font-weight="700" fill="#1a1a1a">SCK · GPIO5 †</text>
+    <text x="645" y="313" font-weight="700" fill="#1a1a1a">SCLK</text>
+    <text x="480" y="300" text-anchor="middle" fill="#333">SPI clock</text>
+
+    <!-- 5 CS -->
+    <line x1="330" y1="344" x2="630" y2="344" stroke="#ff7f0e" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="330" cy="344" r="6" fill="#ff7f0e"/><circle cx="630" cy="344" r="6" fill="#ff7f0e"/>
+    <text x="315" y="349" text-anchor="end" font-weight="700" fill="#1a1a1a">33 · GPIO33</text>
+    <text x="645" y="349" font-weight="700" fill="#1a1a1a">CS</text>
+    <text x="480" y="336" text-anchor="middle" fill="#333">chip select (one per key)</text>
+
+    <!-- 6 DC -->
+    <line x1="330" y1="380" x2="630" y2="380" stroke="#2ca02c" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="330" cy="380" r="6" fill="#2ca02c"/><circle cx="630" cy="380" r="6" fill="#2ca02c"/>
+    <text x="315" y="385" text-anchor="end" font-weight="700" fill="#1a1a1a">27 · GPIO27</text>
+    <text x="645" y="385" font-weight="700" fill="#1a1a1a">DC</text>
+    <text x="480" y="372" text-anchor="middle" fill="#333">data / command</text>
+
+    <!-- 7 RST -->
+    <line x1="330" y1="416" x2="630" y2="416" stroke="#9467bd" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="330" cy="416" r="6" fill="#9467bd"/><circle cx="630" cy="416" r="6" fill="#9467bd"/>
+    <text x="315" y="421" text-anchor="end" font-weight="700" fill="#1a1a1a">15 · GPIO15 †</text>
+    <text x="645" y="421" font-weight="700" fill="#1a1a1a">RST</text>
+    <text x="480" y="408" text-anchor="middle" fill="#333">reset (active low)</text>
+
+    <!-- 8 PWM -->
+    <line x1="330" y1="452" x2="630" y2="452" stroke="#8c564b" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="330" cy="452" r="6" fill="#8c564b"/><circle cx="630" cy="452" r="6" fill="#8c564b"/>
+    <text x="315" y="457" text-anchor="end" font-weight="700" fill="#1a1a1a">14 · GPIO14</text>
+    <text x="645" y="457" font-weight="700" fill="#1a1a1a">PWM</text>
+    <text x="480" y="444" text-anchor="middle" fill="#333">backlight (driven high)</text>
+
+    <!-- 9 KEY -->
+    <line x1="330" y1="488" x2="630" y2="488" stroke="#13a3b5" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="330" cy="488" r="6" fill="#13a3b5"/><circle cx="630" cy="488" r="6" fill="#13a3b5"/>
+    <text x="315" y="493" text-anchor="end" font-weight="700" fill="#1a1a1a">32 · GPIO32</text>
+    <text x="645" y="493" font-weight="700" fill="#1a1a1a">KEY</text>
+    <text x="480" y="480" text-anchor="middle" fill="#333">key switch (internal pull-up)</text>
+  </g>
+
+  <!-- Notes -->
+  <g font-size="13" fill="#333">
+    <text x="60" y="584">† ESP32 strapping pin with a boot pull-up. The board must still boot normally with the key attached (U8 bench check).</text>
+    <text x="60" y="604">3.3 V only: never connect VCC to USB or BAT. Calibrated 2026-11-15: offset (2, 1), BGR, inverted colours, KEY low when pressed.</text>
+    <text x="60" y="624">Later keys share SCLK, DIN, DC, RST and PWM; each key needs its own CS and KEY pin.</text>
+  </g>
+</svg>
