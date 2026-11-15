@@ -42,3 +42,9 @@ codegen-units = 1
 debug         = 2
 lto           = "fat"
 opt-level     = "s"
+
+# xtensa-lx-rt 0.23.0 splits its `Reset` routine across several `global_asm!` blocks, and
+# recent toolchains don't keep them adjacent, so every app hangs before `main` on the ESP32.
+# The vendored copy emits `Reset` as one block. See vendor/README.md.
+[patch.crates-io]
+xtensa-lx-rt = { path = "vendor/xtensa-lx-rt" }
