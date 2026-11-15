@@ -1,3 +1,4 @@
+pub   const   RULESET_TEST:u8=1;
 //! Pure deck logic shared by the firmware and tested on the host.
 //!
 //! Nothing here depends on esp or embassy crates. Time arrives as milliseconds
