@@ -1,0 +1,136 @@
+# Checks every PR to main and every push to main. The three job names are the
+# required checks in the main ruleset (.github/rulesets/main.json): rename a job
+# only together with that file, or PRs wait on a check that never reports.
+# No path filters: a required check skipped by a filter blocks the merge.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancel superseded runs of a PR; every push to main runs to completion.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # mise refuses untrusted config files; this checkout is the only config it reads.
+  MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
+
+jobs:
+  deck-core:
+    # Pinned image: the cached toolchain paths must match the runner's home.
+    runs-on: ubuntu-24.04
+    env:
+      # Only rust is needed here. Disabling the rest also stops `mise exec`
+      # from auto-installing (and building from source) the firmware tools.
+      MISE_DISABLE_TOOLS: cargo:espup,cargo:espflash,cargo:esp-generate
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # mise's rust backend only links to rustup, so the toolchain itself lives
+      # outside mise's cache. The key changes with the rust pin in mise.toml.
+      - name: Cache Rust toolchain
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.rustup/toolchains/1.100.0-x86_64-unknown-linux-gnu
+            ~/.rustup/update-hashes/1.100.0-x86_64-unknown-linux-gnu
+          key: rustup-1.100.0-${{ runner.os }}-${{ hashFiles('mise.toml') }}
+
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        with:
+          version: 2026.11.8
+          cache_key_prefix: mise-v1-deck-core
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        env:
+          RUSTUP_TOOLCHAIN: 1.100.0
+
+      - run: mise exec -- cargo fmt --check
+      - run: mise exec -- cargo clippy --locked --all-targets -- -D warnings
+      - run: mise exec -- cargo test --locked
+
+  firmware:
+    runs-on: ubuntu-24.04
+    env:
+      # espflash and esp-generate aren't needed to build and take ~2.5 min to
+      # build from source; disabling them keeps `mise exec`/`mise run` from
+      # auto-installing them.
+      MISE_DISABLE_TOOLS: cargo:espflash,cargo:esp-generate
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Cache Rust toolchain
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.rustup/toolchains/1.100.0-x86_64-unknown-linux-gnu
+            ~/.rustup/update-hashes/1.100.0-x86_64-unknown-linux-gnu
+          key: rustup-1.100.0-${{ runner.os }}-${{ hashFiles('mise.toml') }}
+
+      # The esp toolchain (Xtensa Rust, LLVM and GCC, several hundred MB);
+      # mise.toml holds the --toolchain-version pin.
+      - name: Cache esp toolchain
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.rustup/toolchains/esp
+          key: esp-toolchain-${{ runner.os }}-${{ hashFiles('mise.toml') }}
+
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        with:
+          version: 2026.11.8
+          cache_key_prefix: mise-v1-firmware
+
+      # Runs on every job: with the toolchain restored, espup reuses it in
+      # seconds and only rewrites .esp/export-esp.sh and its ~/.espup symlink.
+      - name: Install esp toolchain
+        run: mise run esp-toolchain
+        env:
+          # espup queries the GitHub API; authenticated calls avoid its rate limit.
+          GITHUB_TOKEN: ${{ github.token }}
+
+      # build.rs requires wifi.env. The example's placeholders are not secrets,
+      # and copying it fails CI if the example and build.rs drift apart.
+      - name: Placeholder wifi.env
+        run: cp firmware/wifi.env.example firmware/wifi.env
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        env:
+          RUSTUP_TOOLCHAIN: esp
+        with:
+          workspaces: firmware -> target
+
+      # Through `mise exec` so firmware/mise.toml switches to the esp toolchain
+      # and loads espup's environment, as in a local build.
+      - run: mise exec -- cargo fmt --check
+        working-directory: firmware
+      - run: mise exec -- cargo build --release --locked
+        working-directory: firmware
+      - run: mise exec -- cargo clippy --release --locked -- -D warnings
+        working-directory: firmware
+
+  fake-deck:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: tools/fake-deck
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          # package.json engines only says >=24; CI pins the major itself.
+          node-version: 24
+          cache: npm
+          cache-dependency-path: tools/fake-deck/package-lock.json
+
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
