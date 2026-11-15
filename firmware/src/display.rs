@@ -25,7 +25,7 @@ pub mod calibration {
     /// Where the 128×128 window sits inside the controller's 132×162 RAM.
     pub const OFFSET: (u16, u16) = (2, 1);
     pub const COLOR_ORDER: ColorOrder = ColorOrder::Bgr;
-    pub const INVERSION: ColorInversion = ColorInversion::Normal;
+    pub const INVERSION: ColorInversion = ColorInversion::Inverted;
 }
 
 type SpiDevice = ExclusiveDevice<Spi<'static, Blocking>, Output<'static>, Delay>;

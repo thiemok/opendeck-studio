@@ -98,7 +98,7 @@
   <!-- Notes -->
   <g font-size="13" fill="#333">
     <text x="60" y="584">† ESP32 strapping pin with a boot pull-up. The board must still boot normally with the key attached (U8 bench check).</text>
-    <text x="60" y="604">3.3 V only: never connect VCC to USB or BAT. Panel offset, colour order and KEY polarity are still pending the bench run.</text>
+    <text x="60" y="604">3.3 V only: never connect VCC to USB or BAT. Calibrated 2026-11-15: offset (2, 1), BGR, inverted colours, KEY low when pressed.</text>
     <text x="60" y="624">Later keys share SCLK, DIN, DC, RST and PWM; each key needs its own CS and KEY pin.</text>
   </g>
 </svg>

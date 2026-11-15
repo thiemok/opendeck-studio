@@ -142,6 +142,27 @@ Firmware policy (KTD7, confirmed):
 5. Give each TCP connect attempt its own timeout of about 5 s. A Companion host that vanishes without a FIN or RST (powered off, Wi-Fi gone, firewall DROP) otherwise holds every attempt for the stack's SYN timeout, which is about 2 minutes on Linux, and the backoff never bounds recovery. The fake deck does this with `socket.setTimeout` until `connect`.
 6. Cap the backoff at about 5 s instead of 10 s. With the 8 s step, recovery after a Companion restart took 7 s when 2–3 s was possible. AE1 asks for automatic recovery and shorter is better. A home LAN does not need the larger cap.
 
+## On hardware (P2)
+
+Measured on 2026-11-15 with the P2 firmware on a Feather ESP32 V2 (ESP32-PICO-V3-02, rev v3.0) and one ScreenKey. It ran against the same Companion v5.1.3 container over WPA2 Wi-Fi, with the deck on a different subnet from the desktop, routed. Times come from host-timestamped serial logs and the deck's own log lines.
+
+| Measurement | Result |
+|---|---|
+| One 128×128 `rgb` key image (65,646 B line) | received in 193–357 ms, drawn in 40–45 ms |
+| Key press to Companion's redrawn image | about 330 ms after release, then about 45 ms to draw |
+| Free heap | 135,628 B at boot, about 90,000 B after registration (72 KB line buffer static) |
+| Companion stopped (`docker stop`) | link closed the moment the container exited; key back to "Connecting" |
+| Companion started again | registered 1.8 s after `docker start`, image 2.2 s after it |
+| Half-open link (`docker pause`) | silence watchdog fired 4.8 s after the pause; registered 0.1 s after `docker unpause` |
+| Host changed over serial | old link dropped at once (`HostChanged`); registered 90 ms after a correct `host` command |
+| Unreachable host | each connect attempt times out after 5 s and is retried with backoff |
+| Presses while not registered | dropped, not queued. Companion's count did not change, and no `KEY-PRESS` was sent after reconnecting. |
+
+**Differences from the fake deck:**
+
+- **First connection after a deck reboot.** The new connection gets `BEGIN` and `CAPS`, and the deck sends `ADD-DEVICE`. Companion then closes the device's stale connection from before the reboot, but never answers the new `ADD-DEVICE`. After 5 s the deck's silence watchdog closes it, and the retry 1 s later registers normally. So a reboot costs about 6 s before the key shows Companion's image. A fix could re-send `ADD-DEVICE` after a short timeout; it's left out because recovery is already automatic (R7).
+- **Startup hang (fixed).** With xtensa-lx-rt 0.23.0, every esp-hal app hung before `main` on this chip. The firmware uses a patched copy; see `firmware/vendor/README.md` and THI-77.
+
 ## Rotation amounts
 
 `CAPS` advertises `ROTARY_AMOUNT=1`, and Companion passes the signed step count from `DIRECTION` to the button (clamped to ±100 *(source)*). But `DIRECTION=3` ran the button's *rotate right* action **once** (count 2 → 3), not three times. Actions see one rotate event. Firmware should therefore send one `KEY-ROTATE` with `DIRECTION=±1` per detent, unless Companion-side actions are written to read the step amount. Coalescing several detents into one message would silently drop steps.
