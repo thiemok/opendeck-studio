@@ -49,8 +49,8 @@ CI runs these three in `firmware/` on every PR (see the repo [README](../README.
 ```sh
 cd firmware
 mise exec -- cargo fmt --check
-mise exec -- cargo build --release
-mise exec -- cargo clippy --release -- -D warnings
+mise exec -- cargo build --release --locked
+mise exec -- cargo clippy --release --locked -- -D warnings
 ```
 
 CI has no real Wi-Fi credentials. It builds with a copy of `wifi.env.example` as `wifi.env`.

@@ -54,8 +54,8 @@ jobs:
           RUSTUP_TOOLCHAIN: 1.100.0
 
       - run: mise exec -- cargo fmt --check
-      - run: mise exec -- cargo clippy --all-targets -- -D warnings
-      - run: mise exec -- cargo test
+      - run: mise exec -- cargo clippy --locked --all-targets -- -D warnings
+      - run: mise exec -- cargo test --locked
 
   firmware:
     runs-on: ubuntu-24.04
@@ -111,9 +111,9 @@ jobs:
       # and loads espup's environment, as in a local build.
       - run: mise exec -- cargo fmt --check
         working-directory: firmware
-      - run: mise exec -- cargo build --release
+      - run: mise exec -- cargo build --release --locked
         working-directory: firmware
-      - run: mise exec -- cargo clippy --release -- -D warnings
+      - run: mise exec -- cargo clippy --release --locked -- -D warnings
         working-directory: firmware
 
   fake-deck:
