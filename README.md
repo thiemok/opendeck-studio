@@ -13,3 +13,15 @@ The requirements and stage plan are in [`docs/plans/2026-11-13-1722-feat-compani
 | P2 | First LCD key end-to-end on the chosen board |
 | P3 | Full PoC: two keys, encoder, OLED with local menu |
 | P4 | Password-gated OTA and measured findings for the final-shape decision |
+
+## Checks
+
+Every PR to `main`, and every push to it, runs three jobs in [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
+
+| Job | Runs | Local commands |
+|---|---|---|
+| `deck-core` | `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` at the repo root | `mise exec -- cargo …` at the repo root |
+| `firmware` | `cargo fmt --check`, `cargo build --release`, `cargo clippy --release -- -D warnings` in `firmware/` | [`firmware/README.md`](firmware/README.md#checks) |
+| `fake-deck` | `npm test`, `npm run typecheck` in `tools/fake-deck/` | [`tools/fake-deck/README.md`](tools/fake-deck/README.md) |
+
+CI installs its tools through mise like a local setup does, and it uses no repository secrets. Hardware tests aren't part of CI; bench checks stay manual.

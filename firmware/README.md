@@ -42,6 +42,19 @@ espflash picks up `partitions.csv` and the 8 MB flash size from `espflash.toml`.
 
 Serial access needs your user in the `dialout` group. On the Feather the USB-UART's DTR/RTS lines drive EN/IO0, so opening the port with some terminal programs resets the board.
 
+## Checks
+
+CI runs these three in `firmware/` on every PR (see the repo [README](../README.md#checks)):
+
+```sh
+cd firmware
+mise exec -- cargo fmt --check
+mise exec -- cargo build --release
+mise exec -- cargo clippy --release -- -D warnings
+```
+
+CI has no real Wi-Fi credentials. It builds with a copy of `wifi.env.example` as `wifi.env`.
+
 ## What a healthy boot logs
 
 ```text
