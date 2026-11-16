@@ -233,24 +233,32 @@ At the P3 throughput, transfer alone would be about 3.1–3.6 s for 16 `rgb` key
 
 The first `page change` line after registering has no press (`press to last none`): it is Companion's initial redraw. Leave it out.
 
-| Keys | Format | Draw | Commands | Wire B per page change | Decode ms per key (sum / 32 or 16) | Free heap after registering | Press to last key, median / max |
-|---|---|---|---|---|---|---|---|
-| 16 | `rgb` | decode only | `bench 16`, `image rgb` | | | | |
-| 16 | `png` | decode only | `bench 16`, `image png` | | | | |
-| 32 | `rgb` | decode only | `bench 32`, `image rgb` | | | | |
-| 32 | `png` | decode only | `bench 32`, `image png` | | | | |
-| 16 | `rgb` | draw | `bench 16 draw`, `image rgb` | | | | |
-| 16 | `png` | draw | `bench 16 draw`, `image png` | | | | |
-| 32 | `rgb` | draw | `bench 32 draw`, `image rgb` | | | | |
-| 32 | `png` | draw | `bench 32 draw`, `image png` | | | | |
+Measured on 2026-11-16 with the PR #7 firmware on the P3 Feather (two ScreenKeys, OLED module), same Wi-Fi access point as Companion 5.1.3 (`192.168.201.x`), ten or more page changes per cell. Decode is the `decode sum` divided by the key count.
+
+| Keys | Format | Draw | Commands | Wire B per page change | Decode ms per key | Press to last key, median / max |
+|---|---|---|---|---|---|---|
+| 16 | `rgb` | decode only | `bench 16`, `image rgb` | 1,050,338 | 12 | about 3,600 ms (first byte to last key: median about 3,580, range 3,483–3,959)¹ |
+| 16 | `png` | decode only | `bench 16`, `image png` | 77,286 / 89,430 | 31 | 738 / 786 ms |
+| 32 | `rgb` | decode only | `bench 32`, `image rgb` | 2,100,674 | 11 | about 7,200 ms (first byte to last key: median about 7,180, range 6,993–7,303)¹ |
+| 32 | `png` | decode only | `bench 32`, `image png` | 166,618 / 192,966 | 30 | 1,468 / 1,624 ms |
+| 16 | `rgb` | draw | `bench 16 draw`, `image rgb` | 1,050,338 | 27 | 3,957 / 4,684 ms |
+| 16 | `png` | draw | `bench 16 draw`, `image png` | 77,286 / 89,430 | 50 | 1,056 / 1,379 ms |
+| 32 | `rgb` | draw | `bench 32 draw`, `image rgb` | 2,100,674 | 27 | 8,034 / 8,599 ms |
+| 32 | `png` | draw | `bench 32 draw`, `image png` | 166,618 / 192,966 | 50 | 2,136 / 2,476 ms |
+
+¹ In these two cells the presses came about every 3 s, faster than a page change, so most press-to-last times include waiting for the previous page change. The first-byte-to-last-key times are unaffected; the one clean press-to-last sample was 3,604 ms (16) and 7,237 ms (32). Elsewhere press to last is 30–100 ms more than first byte to last.
 
 "Draw" also sends every key's image to one of the two panels over SPI, as a real deck with a panel per key would. Its decode column then includes the SPI write. "Decode only" still draws keys `0/0` and `0/1` on the two physical panels, so its decode sum includes those two SPI writes (about 26 ms each for `rgb`).
 
-PNG memory: the log line `PNG decoder: … B from the heap; free heap … B -> … B` appears once, at the first `png` registration. Record both numbers:
+PNG memory: `PNG decoder: 44676 B from the heap; free heap 90052 B -> 45376 B`. The workspace stays allocated, so every later cell, `rgb` included, ran with about 45 KB free. A deck that never selects `png` keeps the 90 KB.
 
-| Free heap before | Free heap after | |
-|---|---|---|
-| | | |
+### What the bench showed
+
+- **PNG makes page changes about 4× faster**: at 32 keys with drawing, 2.1 s instead of 8.0 s; at 16 keys, 1.1 s instead of 4.0 s. The wire bytes drop 11–14×, but the gain is smaller because the time is now spent on the deck.
+- **With `png`, the deck's CPU and SPI set the time, not Wi-Fi.** Per key: about 13 ms to receive, about 30 ms to decode (inflate, unfilter, CRC), and about 20–25 ms to write the panel over SPI at 20 MHz. At 32 keys that is about 0.45 s receiving against about 1.6 s decoding and drawing. Ethernet would barely help `png`.
+- **With `rgb`, Wi-Fi sets the time**: about 310 KB/s, 6.5–7.7 s of receiving per 32-key page change. Decode (11 ms per key) and SPI are minor.
+- **The link held** through 8-second `rgb` bursts with presses arriving in the middle: no silence drop, no send timeout. The deck sends no `PING` during a burst, and Companion didn't drop it.
+- Receive and decode are serial: the deck decodes and draws a line inside the read loop, while the next line waits in the 8 KB socket buffer.
 
 ### What the numbers leave out
 
@@ -260,10 +268,8 @@ PNG memory: the log line `PNG decoder: … B from the heap; free heap … B -> �
 
 ### Decisions
 
-To fill in after the bench run:
-
-- **Keep `rgb` or switch to `png`:** pending.
-- **Is 32 keys fast enough for the 4×8 deck, or what would it need (compression, Ethernet, a faster SPI clock)?** Pending.
+- **Keep `rgb` or switch to `png`:** pending; it depends on how much heap the final board can spare (45 KB free on the Feather with `png`).
+- **Is 32 keys fast enough for the 4×8 deck, or what would it need?** With `png`, a 32-key page change takes 2.1 s, bound by decode and SPI on the deck. Ethernet would barely help. Building the decoder at `opt-level = 3` saved only about 4 % of decode time, so it wasn't kept. Further speed-up (overlapping receive with decode and draw, a faster decoder, batched SPI, a faster chip) is tracked in THI-85.
 
 ## Rotation amounts
 
