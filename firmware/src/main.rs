@@ -61,7 +61,9 @@ pub fn set_host(host: Option<HostConfig>) {
 
 /// Holds the longest `KEY-STATE` line: a 128×128 `rgb` bitmap is 65,536 B of base64 (KTD15).
 static LINE_BUF: ConstStaticCell<[u8; 72 * 1024]> = ConstStaticCell::new([0; 72 * 1024]);
-static RX_BUF: ConstStaticCell<[u8; 8 * 1024]> = ConstStaticCell::new([0; 8 * 1024]);
+/// The socket's receive buffer is also its TCP window. 8 KB capped P3 bench throughput at
+/// about 290 KB/s; 32 KB lets more of each image be in flight.
+static RX_BUF: ConstStaticCell<[u8; 32 * 1024]> = ConstStaticCell::new([0; 32 * 1024]);
 static TX_BUF: ConstStaticCell<[u8; 2 * 1024]> = ConstStaticCell::new([0; 2 * 1024]);
 static CHUNK_BUF: ConstStaticCell<[u8; 2 * 1024]> = ConstStaticCell::new([0; 2 * 1024]);
 static OUT_BUF: ConstStaticCell<[u8; 1024]> = ConstStaticCell::new([0; 1024]);
@@ -87,7 +89,9 @@ async fn main(spawner: Spawner) -> ! {
     let peripherals = esp_hal::init(config);
 
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 98768);
-    esp_alloc::heap_allocator!(size: 36 * 1024);
+    // 12 KB: the other 24 KB of this DRAM region went to the 32 KB socket buffer. Free heap
+    // after registration was 90 KB with 36 KB here.
+    esp_alloc::heap_allocator!(size: 12 * 1024);
 
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     esp_rtos::start(timg0.timer0, peripherals.FROM_CPU_INTR0);
