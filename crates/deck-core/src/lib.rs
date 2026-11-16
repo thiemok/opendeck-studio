@@ -15,5 +15,6 @@ pub mod encoder;
 pub mod latency;
 pub mod line;
 pub mod mono;
+pub mod pagetime;
 pub mod png;
 pub mod session;
