@@ -133,4 +133,24 @@ describe('ImageSink', () => {
 		assert.deepEqual(px(10), [0, 0, 0])
 		assert.deepEqual(px(100), [255, 255, 255])
 	})
+
+	it('on a bench surface sizes every control as a key and saves what came off the wire', () => {
+		const dir = mkdtempSync(join(tmpdir(), 'fake-deck-'))
+		const logs: string[] = []
+		const sink = new ImageSink({ outDir: dir, keySize: 8, keys: 16, saveRaw: true, quiet: true, log: (l) => logs.push(l) })
+		const png = new PNG({ width: 8, height: 8 })
+		png.data.fill(200)
+		const wire = PNG.sync.write(png)
+		const result = sink.handleKeyState({ CONTROLID: '0/2', BITMAP: `data:image/png;base64,${wire.toString('base64')}` })
+		assert.equal(result.ok, true)
+		assert.deepEqual(readFileSync(join(dir, '0-2.wire.png')), wire)
+		assert.equal(readPng(join(dir, '0-2.png')).width, 8, '0/2 is a key here, not the encoder')
+		assert.equal(existsSync(join(dir, '0-2-mono.png')), false)
+
+		const rgb = rgbOf(8, 8, () => [1, 2, 3])
+		assert.equal(sink.handleKeyState({ CONTROLID: '1/7', BITMAP: rgb.toString('base64') }).ok, true)
+		assert.deepEqual(readFileSync(join(dir, '1-7.rgb')), rgb)
+		assert.deepEqual(logs, [], 'quiet: no line per image')
+		rmSync(dir, { recursive: true })
+	})
 })

@@ -14,9 +14,17 @@ export async function executeCommand(session: FakeDeckSession, input: string): P
 			break
 		}
 		case 'push':
+			if (session.opts.keys) {
+				console.log('a bench surface has no encoder')
+				break
+			}
 			await session.press(CONTROL_IDS.encoder)
 			break
 		case 'rotate': {
+			if (session.opts.keys) {
+				console.log('a bench surface has no encoder')
+				break
+			}
 			const steps = Number(arg)
 			if (!Number.isInteger(steps) || steps === 0) {
 				console.log('usage: rotate <+n|-n>')

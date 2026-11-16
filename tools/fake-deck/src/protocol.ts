@@ -25,6 +25,17 @@ export const CONTROL_IDS = {
 
 export const ENCODER_SIZE = { w: 128, h: 64 } as const
 
+/** Key counts of the THI-76 bench surfaces; 0 is the normal two keys plus encoder. */
+export const BENCH_SIZES = [16, 32] as const
+export type BenchKeys = 0 | (typeof BENCH_SIZES)[number]
+/** A bench surface is rows of this many keys from `0/0`, as the firmware registers it. */
+export const BENCH_COLUMNS = 8
+
+/** The `CONTROLID`s of a bench surface, row by row. */
+export function benchControlIds(keys: number): string[] {
+	return Array.from({ length: keys }, (_, i) => `${Math.floor(i / BENCH_COLUMNS)}/${i % BENCH_COLUMNS}`)
+}
+
 const escapeValue = (value: string): string => value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 
 export function formatLine(command: string, args: LineArgs = {}): string {
@@ -103,7 +114,17 @@ export function parseCaps(params: Params): Caps {
 	}
 }
 
-export function buildLayoutManifest(opts: { keySize: number }): string {
+export function buildLayoutManifest(opts: { keySize: number; keys?: BenchKeys }): string {
+	if (opts.keys) {
+		// The firmware's bench manifest: every key at keySize, no encoder.
+		const controls: Record<string, { row: number; column: number; stylePreset: string }> = {}
+		for (const id of benchControlIds(opts.keys)) {
+			const [row, column] = id.split('/').map(Number)
+			controls[id] = { row, column, stylePreset: 'default' }
+		}
+		const bench = { stylePresets: { default: { bitmap: { w: opts.keySize, h: opts.keySize } } }, controls }
+		return Buffer.from(JSON.stringify(bench)).toString('base64')
+	}
 	const manifest = {
 		stylePresets: {
 			default: {},

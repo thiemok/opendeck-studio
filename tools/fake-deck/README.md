@@ -34,7 +34,11 @@ Page 1, row 0 then holds:
 | `0/1` key B | blue, `B <count>` | `count - 1` | – |
 | `0/2` encoder | black, `Vol <count>` | `count = 0` | right `+1`, left `-1` |
 
-All three controls show `count`, so any input visibly changes every image. `companion-config/make-page.ts` generates the import files: `node companion-config/make-page.ts > companion-config/fake-deck-page.companionconfig`, and with `--hardware` for `hardware-deck-page.companionconfig`.
+All three controls show `count`, so any input visibly changes every image. `companion-config/make-page.ts` generates the import files: `node companion-config/make-page.ts > companion-config/fake-deck-page.companionconfig`, with `--hardware` for `hardware-deck-page.companionconfig`, and with `--bench 1` / `--bench 2` for the two bench pages below.
+
+### Bench pages (THI-76)
+
+`bench-page-1.companionconfig` and `bench-page-2.companionconfig` fill all 32 positions of the 8×4 grid for the page-change measurement. Import the first with **Replace page 1 with imported page**, then the second as **[ Insert new page ]** so it becomes page 2. On both pages `0/0` is Companion's page up and `0/1` its page down. Every other button has its own colour and `P<page> <row>/<column>` text, and each one changes between the pages, so a page change redraws every key. A 16-key surface shows rows 0–1 of the same pages. Pressing `0/0` and `0/1` alternately moves between the two pages and never onto an empty page 3.
 
 ### Companion MCP (optional)
 
@@ -62,13 +66,22 @@ deck> quit           # sends QUIT
 
 Commands run one at a time, and any typed or piped before the deck has registered wait until it has. Scripted runs work too: `printf 'press 0\nrotate +3\n' | npm start -- --port 26622`. At end of input the deck sends QUIT, so Companion's final image updates may arrive after it has gone.
 
-Options (`--help`): `--host`, `--port`, `--key-size <px>` (square key bitmaps, default 72), `--format rgb|png`, `--device-id`, `--out <dir>`, `--no-ping`.
+Options (`--help`): `--host`, `--port`, `--key-size <px>` (square key bitmaps, default 72, or 128 with `--keys`), `--keys 16|32`, `--format rgb|png`, `--device-id`, `--out <dir>`, `--save-raw`, `--no-ping`.
+
+`--keys 16` or `--keys 32` registers the firmware's bench surface instead: rows of 8 keys from `0/0` at 128×128, with no encoder (`push` and `rotate` do nothing). It logs one `page change` line per page change, in the firmware's format, and every 10 a median of the time from press to last key. On the desktop the receive times mean little, but the bytes on the wire are what the deck would get. A scripted run:
+
+```bash
+( sleep 3; for i in 1 2 3 4 5; do echo 'press 0'; sleep 1.5; echo 'press 1'; sleep 1.5; done ) \
+  | npm start -- --port 26622 --keys 32 --format png --out out/bench-32-png
+```
+
+`--save-raw` also keeps each image as it arrived: `<id>.wire.png` for `png`, `<id>.rgb` for `rgb`. The `deck-core` PNG decoder's Companion fixtures came from it.
 
 `--no-ping` sends no keepalive and disables the 5 s silence watchdog, so only the server ends the session. Use it to measure Companion's idle timeout.
 
 ### Output (`out/`, gitignored)
 
-- `0-0.png`, `0-1.png`, `0-2.png`: the latest image per control.
+- `0-0.png`, `0-1.png`, `0-2.png`: the latest image per control (one per key on a bench surface).
 - `0-2-mono.png`: the encoder image thresholded to 1-bit, as a mono OLED would show it.
 - `protocol.log`: every line in (`<-`) and out (`->`), with timestamps. Bitmaps appear as their byte size, and session events start with `##`.
 
