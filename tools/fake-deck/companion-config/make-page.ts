@@ -68,17 +68,22 @@ const button = (text: string, bg: number, actionSets: Record<string, unknown[]>,
 	localVariables: [],
 })
 
-// Companion page exports key controls by row, then column; place each at the fake deck's own control ID.
+// `--hardware` lays the page out for the firmware deck instead, which leaves column 0 to
+// Companion's page buttons (KTD12, KTD20 in the PoC plan).
+const HARDWARE_IDS = { key0: '0/1', key1: '0/2', encoder: '0/3' }
+const ids = process.argv.includes('--hardware') ? HARDWARE_IDS : CONTROL_IDS
+
+// Companion page exports key controls by row, then column; place each at the deck's own control ID.
 const controls: Record<string, Record<string, unknown>> = {}
 const place = (controlId: string, control: unknown) => {
 	const [row, column] = controlId.split('/')
 	controls[row] ??= {}
 	controls[row][column] = control
 }
-place(CONTROL_IDS.key0, button('A\n$(custom:count)', 0xcc0000, { down: [setCount('$(custom:count) + 1')] }))
-place(CONTROL_IDS.key1, button('B\n$(custom:count)', 0x0044cc, { down: [setCount('$(custom:count) - 1')] }))
+place(ids.key0, button('A\n$(custom:count)', 0xcc0000, { down: [setCount('$(custom:count) + 1')] }))
+place(ids.key1, button('B\n$(custom:count)', 0x0044cc, { down: [setCount('$(custom:count) - 1')] }))
 place(
-	CONTROL_IDS.encoder,
+	ids.encoder,
 	button(
 		'Vol $(custom:count)',
 		0x000000,

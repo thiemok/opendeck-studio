@@ -24,7 +24,7 @@ Verified on 2026-11-13: `BEGIN CompanionVersion="5.1.3+10036-stable-93ea3fa61c" 
 
 1. Finish the first-run wizard in the web UI.
 2. **Variables → Custom Variables**: create a variable named `count`.
-3. **Import / Export → Import configuration**: pick `companion-config/fake-deck-page.companionconfig`, then **Replace page 1 with imported page**.
+3. **Import / Export → Import configuration**: pick `companion-config/fake-deck-page.companionconfig`, then **Replace page 1 with imported page**. For the hardware deck, pick `companion-config/hardware-deck-page.companionconfig` instead: the same buttons, one column to the right (`0/1` key A, `0/2` key B, `0/3` encoder).
 
 Page 1, row 0 then holds:
 
@@ -34,7 +34,7 @@ Page 1, row 0 then holds:
 | `0/1` key B | blue, `B <count>` | `count - 1` | – |
 | `0/2` encoder | black, `Vol <count>` | `count = 0` | right `+1`, left `-1` |
 
-All three controls show `count`, so any input visibly changes every image. `companion-config/make-page.ts` generates the import file: `node companion-config/make-page.ts > companion-config/fake-deck-page.companionconfig`.
+All three controls show `count`, so any input visibly changes every image. `companion-config/make-page.ts` generates the import files: `node companion-config/make-page.ts > companion-config/fake-deck-page.companionconfig`, and with `--hardware` for `hardware-deck-page.companionconfig`.
 
 ### Companion MCP (optional)
 
