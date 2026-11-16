@@ -648,6 +648,28 @@ mod tests {
     }
 
     #[test]
+    fn companion_pngs_match_the_rgb_of_the_same_button() {
+        // Captured from Companion 5.1.3 by the fake deck (`--save-raw`): the same button sent
+        // once as `png` and once as `rgb`. Companion uses Sub, Up and Paeth filters.
+        for (png_bytes, rgb, w, h) in [
+            (
+                &include_bytes!("../tests/fixtures/companion-128x128-key.png")[..],
+                &include_bytes!("../tests/fixtures/companion-128x128-key.rgb")[..],
+                128,
+                128,
+            ),
+            (
+                &include_bytes!("../tests/fixtures/companion-128x64-oled.png")[..],
+                &include_bytes!("../tests/fixtures/companion-128x64-oled.rgb")[..],
+                128,
+                64,
+            ),
+        ] {
+            assert_eq!(decode_all(&data_url(png_bytes), w, h).as_deref(), Ok(rgb));
+        }
+    }
+
+    #[test]
     fn a_zeroed_workspace_decodes() {
         // The firmware allocates the workspace zeroed (KTD4).
         let mut ws: Box<PngWorkspace> = unsafe { Box::<PngWorkspace>::new_zeroed().assume_init() };

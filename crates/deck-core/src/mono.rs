@@ -181,8 +181,8 @@ mod tests {
 
     #[test]
     fn png_gives_the_same_frame_as_rgb() {
-        let png_bytes = include_bytes!("../tests/fixtures/pngjs-128x64-rgba.png");
-        let rgb = include_bytes!("../tests/fixtures/pngjs-128x64-rgba.rgb");
+        let png_bytes = include_bytes!("../tests/fixtures/companion-128x64-oled.png");
+        let rgb = include_bytes!("../tests/fixtures/companion-128x64-oled.rgb");
         let mut url = vec![0u8; base64::encoded_len(png_bytes.len())];
         let url = format!(
             "{}{}",
