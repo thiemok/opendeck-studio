@@ -20,7 +20,7 @@ pub mod calibration {
     /// Quadrature counts per detent: the EC11 has 20 pulses and 20 detents per turn.
     pub const COUNTS_PER_DETENT: i16 = 4;
     /// `1` if the counter rises when turning clockwise, `-1` if it falls.
-    pub const CLOCKWISE_SIGN: i32 = 1;
+    pub const CLOCKWISE_SIGN: i32 = -1;
 }
 
 /// The counter resets to zero at ± this value; a multiple of the counts per detent (KTD23).
