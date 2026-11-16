@@ -4,15 +4,14 @@
 //! host <hostname-or-ip>[:port]   set the Companion host (port defaults to 16622)
 //! host clear                     forget the host
 //! bench off|16|32 [draw]         register the normal surface or a 16/32-key bench surface
-//! image rgb|png                  the key image format Companion is asked for
 //! show                           print the saved host and the surface
 //! help                           list the commands
 //! ```
 //!
-//! `bench` and `image` are for the THI-76 page-change measurement and are not saved.
+//! `bench` is for measuring page changes (THI-76, THI-85) and is not saved.
 
 use crate::config::{DEFAULT_PORT, valid_host};
-use crate::session::{ImageFormat, Layout};
+use crate::session::Layout;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command<'a> {
@@ -26,7 +25,6 @@ pub enum Command<'a> {
         layout: Layout,
         draw: bool,
     },
-    Image(ImageFormat),
     Show,
     Help,
 }
@@ -45,8 +43,6 @@ pub enum ConsoleError {
     BadPort,
     /// `bench` without `off`, `16` or `32`, or with something other than `draw` after it.
     BadBench,
-    /// `image` without `rgb` or `png`.
-    BadImage,
     /// Not a command; the reply suggests `help`.
     Unknown,
 }
@@ -61,14 +57,13 @@ impl ConsoleError {
             Self::BadHost => "host must be a hostname or IPv4 address of at most 63 characters",
             Self::BadPort => "port must be a number from 1 to 65535",
             Self::BadBench => "usage: bench off | bench 16 [draw] | bench 32 [draw]",
-            Self::BadImage => "usage: image rgb | image png",
             Self::Unknown => "unknown command; try `help`",
         }
     }
 }
 
 pub const HELP: &str = "commands: host <hostname-or-ip>[:port] | host clear | \
-bench off|16|32 [draw] | image rgb|png | show | help";
+bench off|16|32 [draw] | show | help";
 
 pub fn parse(line: &str) -> Result<Command<'_>, ConsoleError> {
     let mut words = line.split_whitespace();
@@ -87,9 +82,6 @@ pub fn parse(line: &str) -> Result<Command<'_>, ConsoleError> {
         ("host", None) => Err(ConsoleError::MissingHost),
         ("host", Some("clear")) => Ok(Command::ClearHost),
         ("host", Some(target)) => parse_target(target),
-        ("image", Some("rgb")) => Ok(Command::Image(ImageFormat::Rgb)),
-        ("image", Some("png")) => Ok(Command::Image(ImageFormat::Png)),
-        ("image", _) => Err(ConsoleError::BadImage),
         ("show", None) => Ok(Command::Show),
         ("help", None) => Ok(Command::Help),
         ("show" | "help", Some(_)) => Err(ConsoleError::TooManyArgs),
@@ -201,7 +193,7 @@ mod tests {
     }
 
     #[test]
-    fn bench_and_image_commands_parse() {
+    fn bench_commands_parse() {
         for (line, layout, draw) in [
             ("bench off", Layout::Normal, false),
             ("bench 16", Layout::Bench16, false),
@@ -210,12 +202,10 @@ mod tests {
         ] {
             assert_eq!(parse(line), Ok(Command::Bench { layout, draw }), "{line}");
         }
-        assert_eq!(parse("image rgb"), Ok(Command::Image(ImageFormat::Rgb)));
-        assert_eq!(parse("image png"), Ok(Command::Image(ImageFormat::Png)));
     }
 
     #[test]
-    fn bad_bench_and_image_commands_are_errors() {
+    fn bad_bench_commands_are_errors() {
         for line in [
             "bench",
             "bench 8",
@@ -225,16 +215,8 @@ mod tests {
         ] {
             assert_eq!(parse(line), Err(ConsoleError::BadBench), "{line}");
         }
-        for line in ["image", "image webp", "image png now"] {
-            let want = if line == "image png now" {
-                ConsoleError::TooManyArgs
-            } else {
-                ConsoleError::BadImage
-            };
-            assert_eq!(parse(line), Err(want), "{line}");
-        }
         assert!(ConsoleError::BadBench.reason().contains("bench 32"));
-        assert!(HELP.contains("bench off|16|32 [draw]") && HELP.contains("image rgb|png"));
+        assert!(HELP.contains("bench off|16|32 [draw]"));
     }
 
     #[test]

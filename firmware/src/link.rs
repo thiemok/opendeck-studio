@@ -317,7 +317,7 @@ async fn serve(
                                     **png = alloc_png_workspace();
                                 }
                                 info!(
-                                    "registered with Companion as {}; it sends {} images; free heap {} B",
+                                    "registered with Companion as {} ({} images); free heap {} B",
                                     Describe(surface),
                                     format.name(),
                                     esp_alloc::HEAP.free()

@@ -620,29 +620,8 @@ mod tests {
     }
 
     #[test]
-    fn pngjs_fixtures_match_their_raw_rgb() {
-        // Written by the fake deck's encoder (pngjs), which picks its own filters per row.
-        for (png_bytes, rgb, w, h) in [
-            (
-                &include_bytes!("../tests/fixtures/pngjs-128x128-rgb.png")[..],
-                &include_bytes!("../tests/fixtures/pngjs-128x128-rgb.rgb")[..],
-                128,
-                128,
-            ),
-            (
-                &include_bytes!("../tests/fixtures/pngjs-128x64-rgba.png")[..],
-                &include_bytes!("../tests/fixtures/pngjs-128x64-rgba.rgb")[..],
-                128,
-                64,
-            ),
-        ] {
-            assert_eq!(decode_all(&data_url(png_bytes), w, h).as_deref(), Ok(rgb));
-        }
-    }
-
-    #[test]
     fn companion_pngs_match_the_rgb_of_the_same_button() {
-        // Captured from Companion 5.1.3 by the fake deck (`--save-raw`): the same button sent
+        // Captured from Companion 5.1.3 (THI-76 desktop run): the same button sent
         // once as `png` and once as `rgb`. Companion uses Sub, Up and Paeth filters.
         for (png_bytes, rgb, w, h) in [
             (

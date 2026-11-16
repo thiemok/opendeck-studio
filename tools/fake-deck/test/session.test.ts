@@ -354,45 +354,6 @@ describe('REPL commands', () => {
 		session.stop()
 	})
 
-	it('a bench surface registers its keys and has no encoder to push or turn', async () => {
-		const { companion, session } = await setup({ keys: 16, keySize: 128 })
-		session.start()
-		await waitFor(() => session.state === 'registered')
-		const [add] = companion.sent('ADD-DEVICE')
-		const manifest = JSON.parse(Buffer.from(String(add.params.LAYOUT_MANIFEST), 'base64').toString())
-		assert.equal(Object.keys(manifest.controls).length, 16)
-		await executeCommand(session, 'push')
-		await executeCommand(session, 'rotate +1')
-		await executeCommand(session, 'press 1')
-		await waitFor(() => companion.sent('KEY-PRESS').length === 2)
-		assert.equal(companion.sent('KEY-ROTATE').length, 0)
-		assert.deepEqual(
-			companion.sent('KEY-PRESS').map((m) => m.params.CONTROLID),
-			['0/1', '0/1']
-		)
-		session.stop()
-	})
-
-	it('passes each KEY-STATE line\'s timing and length along', async () => {
-		const { session } = await setup({}, (c) => {
-			c.onLine = (msg, socket) => {
-				if (msg.command === 'ADD-DEVICE') {
-					socket.write(`ADD-DEVICE OK DEVICEID="${msg.params.DEVICEID}" \n`)
-					socket.write('KEY-STATE DEVICEID="x" CONTROLID="0/0" BITMAP="AAAA"\n')
-				}
-			}
-		})
-		const timings: { startedAt: number; receivedAt: number; bytes: number }[] = []
-		session.on('keyState', (_p, t) => timings.push(t))
-		const before = Date.now()
-		session.start()
-		await waitFor(() => timings.length === 1)
-		const [t] = timings
-		assert.equal(t.bytes, 'KEY-STATE DEVICEID="x" CONTROLID="0/0" BITMAP="AAAA"'.length)
-		assert.ok(t.startedAt >= before && t.receivedAt >= t.startedAt, JSON.stringify(t))
-		session.stop()
-	})
-
 	it('ignores invalid input and returns false only for quit', async () => {
 		const { companion, session } = await setup()
 		session.start()

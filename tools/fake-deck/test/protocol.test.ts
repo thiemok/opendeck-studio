@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
-	benchControlIds,
 	buildLayoutManifest,
 	CONTROL_IDS,
 	formatLine,
@@ -117,18 +116,6 @@ describe('buildLayoutManifest', () => {
 		assert.equal(manifest.controls[CONTROL_IDS.encoder].stylePreset, 'encoder')
 		assert.equal(manifest.controls[CONTROL_IDS.key0].stylePreset, 'key')
 		for (const id of Object.keys(manifest.controls)) assert.match(id, /^[a-zA-Z0-9\-/]+$/)
-	})
-
-	it('declares a bench surface as rows of 8 keys with no encoder, like the firmware', () => {
-		for (const keys of [16, 32] as const) {
-			const manifest = JSON.parse(Buffer.from(buildLayoutManifest({ keySize: 128, keys }), 'base64').toString())
-			assert.deepEqual(manifest.stylePresets, { default: { bitmap: { w: 128, h: 128 } } })
-			const ids = Object.keys(manifest.controls)
-			assert.equal(ids.length, keys)
-			assert.deepEqual(ids, benchControlIds(keys))
-			assert.deepEqual(manifest.controls['1/7'], { row: 1, column: 7, stylePreset: 'default' })
-		}
-		assert.equal(benchControlIds(32).at(-1), '3/7')
 	})
 
 	it('sizes the key preset from keySize', () => {

@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
-import { benchControlIds } from '../src/protocol.ts'
 
 describe('companion-config', () => {
 	it('the committed page export matches make-page.ts', () => {
@@ -35,7 +34,8 @@ describe('companion-config', () => {
 			for (const n of [1, 2]) {
 				const all = buttons(benchPage(n))
 				assert.equal(all.length, 32)
-				assert.deepEqual(all.map((x) => x.id).sort(), benchControlIds(32).sort())
+				const ids = Array.from({ length: 32 }, (_, i) => `${Math.floor(i / 8)}/${i % 8}`)
+				assert.deepEqual(all.map((x) => x.id).sort(), ids.sort())
 				assert.deepEqual(all.find((x) => x.id === '0/0')?.b, { type: 'pageup' })
 				assert.deepEqual(all.find((x) => x.id === '0/1')?.b, { type: 'pagedown' })
 			}

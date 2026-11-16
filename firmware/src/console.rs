@@ -77,20 +77,7 @@ fn run(text: &str, store: &mut ConfigStore) {
             Err(e) => println!("could not clear the host: {e:?}"),
         },
         Ok(Command::Bench { layout, draw }) => {
-            let surface = SURFACE.lock(|s| s.get());
-            set_surface(SurfaceConfig {
-                layout,
-                draw,
-                ..surface
-            });
-            println!(
-                "surface: {}; re-registering",
-                Describe(SURFACE.lock(|s| s.get()))
-            );
-        }
-        Ok(Command::Image(format)) => {
-            let surface = SURFACE.lock(|s| s.get());
-            set_surface(SurfaceConfig { format, ..surface });
+            set_surface(SurfaceConfig { layout, draw });
             println!(
                 "surface: {}; re-registering",
                 Describe(SURFACE.lock(|s| s.get()))
@@ -109,23 +96,16 @@ fn run(text: &str, store: &mut ConfigStore) {
     }
 }
 
-/// The surface in console words, e.g. `bench 32 draw, png images`.
+/// The surface in console words, e.g. `bench 32 draw`.
 pub struct Describe(pub SurfaceConfig);
 
 impl core::fmt::Display for Describe {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let SurfaceConfig {
-            layout,
-            format,
-            draw,
-        } = self.0;
+        let SurfaceConfig { layout, draw } = self.0;
         match layout {
-            Layout::Normal => f.write_str("normal")?,
-            _ => write!(f, "bench {}", layout.bench_keys())?,
+            Layout::Normal => f.write_str("normal"),
+            _ if draw => write!(f, "bench {} draw", layout.bench_keys()),
+            _ => write!(f, "bench {}", layout.bench_keys()),
         }
-        if draw && layout != Layout::Normal {
-            f.write_str(" draw")?;
-        }
-        write!(f, ", {} images", format.name())
     }
 }

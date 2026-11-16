@@ -78,11 +78,10 @@ Type into the serial monitor (`cargo run` opens it, or `espflash monitor`) at 11
 | `host <ip-or-name>[:port]` | Saves the Companion host to flash and reconnects at once. The port defaults to 16622. |
 | `host clear` | Forgets the host. The displays show "No host". |
 | `bench off` / `bench 16` / `bench 32` | Registers the normal surface, or a bench surface of 16 or 32 keys, and re-registers at once. Add `draw` (`bench 32 draw`) to also draw every key's image on a panel. |
-| `image rgb` / `image png` | The image format Companion is asked for, on either surface. Re-registers at once. |
 | `show` | Prints the saved host and the surface. |
 | `help` | Lists the commands. |
 
-The host survives reboots and reflashing, because it lives in the `deckcfg` partition, not in the app image. `bench` and `image` are not saved: a reboot returns to the normal surface with `rgb` images.
+The host survives reboots and reflashing, because it lives in the `deckcfg` partition, not in the app image. `bench` is not saved: a reboot returns to the normal surface.
 
 ## What the displays show
 
@@ -94,6 +93,8 @@ The keys and the OLED show the same states.
 | "No host" | Wi-Fi is up, but no Companion host is set |
 | "Connecting" plus the host | Trying to reach and register with Companion; retries back off from 1 s to 5 s |
 | Companion's images | Registered. Presses and encoder turns go to Companion. |
+
+The deck asks Companion for PNG images whenever it offers them, and decodes them on the device; otherwise it takes raw `rgb`. PNG cuts the bytes per image about 11×, and page changes about 4× (THI-76). The decoder takes about 45 KB from the heap at the first PNG registration and logs the heap before and after.
 
 Presses and encoder turns while the deck isn't registered are dropped, not sent later. For a test Companion, use the pinned container in `tools/fake-deck/` (`docker compose up`). The deck appears as one surface with three controls in row 0:
 
@@ -107,10 +108,10 @@ Design the encoder button white-on-black in Companion: mid-brightness colours tu
 
 The log prints a `round trip` line for each press or turn answered by a new image, and every 20 samples the median and maximum. That is the P3 responsiveness measurement.
 
-## Bench surface (THI-76)
+## Bench surface (THI-76, THI-85)
 
 `bench 16` or `bench 32` registers 16 or 32 keys in rows of 8 from `0/0`, with no encoder, to measure how long a page change takes. Key A is bench key `0/0` and key B is `0/1`; the bench pages in `tools/fake-deck/companion-config/` make them page up and page down. The other keys' images are decoded and timed but not shown, unless `draw` sends each one to panel A (even keys) or B (odd keys) as well. The OLED shows "BENCH" with the surface.
 
-Each page change logs one `page change` line: keys drawn, format, the time from the press to the last key and from the first image byte to the last key, bytes on the wire, and the summed and largest receive and decode times. Every 10 page changes it logs the median and maximum press-to-last-key time and the free heap. `image png` takes about 45 KB for the PNG decoder from the heap the first time it registers, and logs the heap before and after.
+Each page change logs one `page change` line: keys drawn, format, the time from the press to the last key and from the first image byte to the last key, bytes on the wire, and the summed and largest receive and decode times. Every 10 page changes it logs the median and maximum press-to-last-key time and the free heap. Without pressing anything, `bench 32` again re-registers, and Companion's full redraw gives one `page change … press to last none` line with the receive and decode sums.
 
-The procedure and the results table are in [the protocol notes](../docs/notes/satellite-protocol-firmware-notes.md#page-change-at-16-and-32-keys-thi-76).
+The procedure and the THI-76 results are in [the protocol notes](../docs/notes/satellite-protocol-firmware-notes.md#page-change-at-16-and-32-keys-thi-76).

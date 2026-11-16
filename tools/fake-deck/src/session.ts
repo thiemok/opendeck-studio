@@ -2,7 +2,6 @@ import { EventEmitter } from 'node:events'
 import net from 'node:net'
 import { setTimeout as sleep } from 'node:timers/promises'
 import {
-	type BenchKeys,
 	buildLayoutManifest,
 	formatLine,
 	parseCaps,
@@ -18,8 +17,6 @@ export interface SessionOptions {
 	port: number
 	deviceId: string
 	keySize: number
-	/** 16 or 32 registers the firmware's bench surface instead of two keys and the encoder. */
-	keys?: BenchKeys
 	bitmapFormat: 'rgb' | 'png'
 	ping: boolean
 	pingIntervalMs: number
@@ -34,7 +31,7 @@ interface SessionEvents {
 	log: [line: string]
 	line: [direction: 'in' | 'out', line: string]
 	registered: []
-	keyState: [params: Params, timing: LineTiming]
+	keyState: [params: Params]
 	clear: []
 	fatal: [message: string]
 }
@@ -61,13 +58,6 @@ export const DEFAULT_OPTIONS: Omit<SessionOptions, 'host' | 'deviceId'> = {
 	holdMs: 100,
 }
 
-/** When a line started and finished arriving, and its length, for page-change timing. */
-export interface LineTiming {
-	startedAt: number
-	receivedAt: number
-	bytes: number
-}
-
 type SessionState = 'idle' | 'connecting' | 'handshake' | 'registered' | 'backoff' | 'stopped'
 
 export class FakeDeckSession extends EventEmitter<SessionEvents> {
@@ -75,8 +65,6 @@ export class FakeDeckSession extends EventEmitter<SessionEvents> {
 	state: SessionState = 'idle'
 	#socket: net.Socket | null = null
 	#buffer = ''
-	/** When the first byte of the line now in #buffer arrived. */
-	#lineStartedAt = 0
 	#attempt = 0
 	#pingTimer: NodeJS.Timeout | null = null
 	#silenceTimer: NodeJS.Timeout | null = null
@@ -148,20 +136,15 @@ export class FakeDeckSession extends EventEmitter<SessionEvents> {
 		socket.on('data', (chunk: string) => {
 			if (this.#socket !== socket) return
 			this.#armSilence()
-			const now = Date.now()
-			if (this.#buffer === '') this.#lineStartedAt = now
 			this.#buffer += chunk
 			let i
 			while ((i = this.#buffer.indexOf('\n')) !== -1) {
 				const raw = this.#buffer.slice(0, i).replace(/\r$/, '')
 				this.#buffer = this.#buffer.slice(i + 1)
-				const timing = { startedAt: this.#lineStartedAt, receivedAt: now, bytes: raw.length }
-				// The next line, if any, began in this same chunk.
-				this.#lineStartedAt = now
 				if (raw.trim() === '') continue
 				this.emit('line', 'in', raw)
 				try {
-					this.#handle(parseLine(raw), timing)
+					this.#handle(parseLine(raw))
 				} catch (err) {
 					this.emit('log', `error handling "${summariseLine(raw)}": ${(err as Error).message}`)
 				}
@@ -182,7 +165,7 @@ export class FakeDeckSession extends EventEmitter<SessionEvents> {
 		})
 	}
 
-	#handle(msg: Message, timing: LineTiming): void {
+	#handle(msg: Message): void {
 		switch (msg.command) {
 			case 'BEGIN': {
 				const api = String(msg.params.ApiVersion ?? '')
@@ -212,7 +195,7 @@ export class FakeDeckSession extends EventEmitter<SessionEvents> {
 				this.#sendRaw(`PONG ${msg.body}\n`)
 				break
 			case 'KEY-STATE':
-				this.emit('keyState', msg.params, timing)
+				this.emit('keyState', msg.params)
 				break
 			case 'KEYS-CLEAR':
 				this.emit('clear')
@@ -228,7 +211,7 @@ export class FakeDeckSession extends EventEmitter<SessionEvents> {
 			DEVICEID: this.opts.deviceId,
 			SERIAL: `opendeck:${this.opts.deviceId}`,
 			PRODUCT_NAME: 'opendeck fake deck',
-			LAYOUT_MANIFEST: buildLayoutManifest({ keySize: this.opts.keySize, keys: this.opts.keys }),
+			LAYOUT_MANIFEST: buildLayoutManifest({ keySize: this.opts.keySize }),
 		}
 		if (this.opts.bitmapFormat === 'png') {
 			if (serverFormats.includes('png')) args.BITMAP_FORMAT = 'png'

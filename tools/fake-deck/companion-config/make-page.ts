@@ -1,4 +1,4 @@
-import { benchControlIds, CONTROL_IDS } from '../src/protocol.ts'
+import { CONTROL_IDS } from '../src/protocol.ts'
 
 const v = <T>(value: T, isExpression = false) => ({ value, isExpression })
 
@@ -79,6 +79,9 @@ if (benchPage !== null && benchPage !== 1 && benchPage !== 2) {
 	process.stderr.write('usage: make-page.ts --bench <1|2>\n')
 	process.exit(2)
 }
+
+/** The firmware bench surface's `CONTROLID`s: rows of 8 keys from `0/0`, row by row. */
+const benchControlIds = (keys: number) => Array.from({ length: keys }, (_, i) => `${Math.floor(i / 8)}/${i % 8}`)
 
 /** A fully saturated colour for hue 0–360 as Companion's 0xRRGGBB number, darkened enough for white text. */
 const hue = (degrees: number): number => {

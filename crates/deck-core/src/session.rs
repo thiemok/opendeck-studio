@@ -101,7 +101,8 @@ impl Layout {
     }
 }
 
-/// The bitmap format Companion is asked for.
+/// The bitmap format of a registration. The deck asks for `png` whenever `CAPS` offers it
+/// (THI-76: about 4× faster page changes than raw `rgb`) and falls back to `rgb`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ImageFormat {
     Rgb,
@@ -122,7 +123,6 @@ impl ImageFormat {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SurfaceConfig {
     pub layout: Layout,
-    pub format: ImageFormat,
     /// On a bench surface, also draw every key's image on a panel, not only decode it.
     pub draw: bool,
 }
@@ -130,7 +130,6 @@ pub struct SurfaceConfig {
 impl SurfaceConfig {
     pub const NORMAL: Self = Self {
         layout: Layout::Normal,
-        format: ImageFormat::Rgb,
         draw: false,
     };
 }
@@ -287,14 +286,13 @@ impl Session {
                 let png_offered = msg
                     .get("BITMAP_FORMATS")
                     .is_some_and(|v| v.raw().split(',').any(|f| f == "png"));
-                let wants_png = self.config.format == ImageFormat::Png;
-                self.format = if wants_png && png_offered {
+                self.format = if png_offered {
                     ImageFormat::Png
                 } else {
                     ImageFormat::Rgb
                 };
                 self.write_add_device(out);
-                if wants_png && !png_offered {
+                if !png_offered {
                     Event::PngNotOffered
                 } else {
                     Event::None
@@ -532,7 +530,7 @@ mod tests {
         assert_eq!(msg.command, "ADD-DEVICE");
         assert_eq!(msg.get("DEVICEID").unwrap().raw(), "opendeck-a0b7650102ff");
         assert_eq!(msg.get("SERIAL").unwrap().raw(), "opendeck:a0b7650102ff");
-        assert_eq!(msg.get("BITMAP_FORMAT"), None);
+        assert_eq!(msg.get("BITMAP_FORMAT").map(|v| v.raw()), Some("png"));
         assert_eq!(h.session.state(), LinkState::Handshake);
     }
 
@@ -780,11 +778,10 @@ mod tests {
         assert_eq!(h.tick(9_000).0, "Close");
     }
 
-    fn bench(layout: Layout, format: ImageFormat) -> Harness {
+    fn bench(layout: Layout) -> Harness {
         let mut h = Harness::new();
         h.session.set_config(SurfaceConfig {
             layout,
-            format,
             draw: false,
         });
         h
@@ -804,7 +801,7 @@ mod tests {
     #[test]
     fn bench_manifests_have_rows_of_eight_keys_and_no_encoder() {
         for (layout, keys, last) in [(Layout::Bench16, 16, "1/7"), (Layout::Bench32, 32, "3/7")] {
-            let mut h = bench(layout, ImageFormat::Rgb);
+            let mut h = bench(layout);
             let (_, add) = add_device(&mut h, CAPS_ALL);
             let json = decode_manifest(&add);
             assert_eq!(json.matches("\"row\"").count(), keys, "{json}");
@@ -825,7 +822,7 @@ mod tests {
 
     #[test]
     fn a_32_key_add_device_fits_a_4_kb_writer() {
-        let mut h = bench(Layout::Bench32, ImageFormat::Png);
+        let mut h = bench(Layout::Bench32);
         h.session.connected(0);
         let mut buf = [0u8; 4096];
         let mut w = LineWriter::new(&mut buf);
@@ -836,44 +833,41 @@ mod tests {
     }
 
     #[test]
-    fn png_is_requested_only_when_caps_offers_it() {
-        let mut h = bench(Layout::Normal, ImageFormat::Png);
+    fn png_is_requested_whenever_caps_offers_it() {
+        let mut h = bench(Layout::Normal);
         let (event, add) = add_device(&mut h, CAPS_ALL);
         assert_eq!(event, "None");
         let msg = Message::parse(add.as_bytes()).unwrap();
         assert_eq!(msg.get("BITMAP_FORMAT").map(|v| v.raw()), Some("png"));
         assert_eq!(h.session.image_format(), ImageFormat::Png);
 
-        let mut h = bench(Layout::Normal, ImageFormat::Png);
-        let (event, add) = add_device(&mut h, r#"CAPS NONSQUARE=1 BITMAP_FORMATS="rgb""#);
-        assert_eq!(event, "PngNotOffered");
-        assert_eq!(
-            Message::parse(add.as_bytes()).unwrap().get("BITMAP_FORMAT"),
-            None
-        );
-        assert_eq!(h.session.image_format(), ImageFormat::Rgb);
-    }
-
-    #[test]
-    fn rgb_never_requests_a_format() {
-        let mut h = bench(Layout::Bench16, ImageFormat::Rgb);
-        let (_, add) = add_device(&mut h, CAPS_ALL);
-        assert_eq!(
-            Message::parse(add.as_bytes()).unwrap().get("BITMAP_FORMAT"),
-            None
-        );
+        let mut h = bench(Layout::Normal);
+        for caps in [
+            r#"CAPS NONSQUARE=1 BITMAP_FORMATS="rgb""#,
+            "CAPS NONSQUARE=1",
+        ] {
+            let (event, add) = add_device(&mut h, caps);
+            assert_eq!(event, "PngNotOffered", "{caps}");
+            assert_eq!(
+                Message::parse(add.as_bytes()).unwrap().get("BITMAP_FORMAT"),
+                None,
+                "{caps}"
+            );
+            assert_eq!(h.session.image_format(), ImageFormat::Rgb, "{caps}");
+            h.session.closed(0);
+        }
     }
 
     #[test]
     fn bench_key_state_maps_to_its_index_within_the_layout() {
         let line = r#"KEY-STATE DEVICEID="d" CONTROLID="2/5" BITMAP="AAAA""#;
-        let mut h = bench(Layout::Bench32, ImageFormat::Rgb);
+        let mut h = bench(Layout::Bench32);
         h.register(0);
         assert_eq!(
             h.line(1, line).0,
             r#"Draw { control: Bench(21), bitmap: "AAAA" }"#
         );
-        let mut h = bench(Layout::Bench16, ImageFormat::Rgb);
+        let mut h = bench(Layout::Bench16);
         h.register(0);
         assert!(
             h.line(1, line).0.starts_with("Ignored"),
@@ -889,7 +883,7 @@ mod tests {
 
     #[test]
     fn bench_presses_use_their_own_control_id_and_rotation_sends_nothing() {
-        let mut h = bench(Layout::Bench32, ImageFormat::Rgb);
+        let mut h = bench(Layout::Bench32);
         h.register(0);
         let key = Layout::Bench32.physical(Control::KeyB).unwrap();
         assert_eq!(
@@ -907,7 +901,6 @@ mod tests {
         h.register(0);
         h.session.set_config(SurfaceConfig {
             layout: Layout::Bench16,
-            format: ImageFormat::Rgb,
             draw: true,
         });
         h.session.closed(10);

@@ -11,7 +11,7 @@ Only the latest Companion release was tested. Older versions are out of scope (s
 - **Registration:** after `BEGIN` + `CAPS`, send one `ADD-DEVICE` with a `LAYOUT_MANIFEST`. Re-send it after every reconnect, because disconnect removes the device.
 - **Input:** `KEY-PRESS` (pressed / released) and `KEY-ROTATE` by `CONTROLID`. Every one is answered with `… OK`.
 - **Output:** `KEY-STATE` per control, carrying a raw RGB bitmap at exactly the manifest size. It is pushed on registration and on every change.
-- **Images:** default raw `rgb` costs 15,552 B per 72×72 key (20,736 B on the wire as base64), and 24,576 B per 128×64 OLED image (32,768 B base64). Optional `png` is about 10× smaller on the wire but needs a decoder.
+- **Images:** default raw `rgb` costs 15,552 B per 72×72 key (20,736 B on the wire as base64), and 24,576 B per 128×64 OLED image (32,768 B base64). Optional `png` is about 10× smaller on the wire but needs a decoder; since THI-76 the firmware asks for `png`.
 - **OLED:** request a 128×64 bitmap and threshold it to 1-bit on the device. Don't build a text renderer (see [OLED](#oled-image-vs-text)).
 
 ## Messages
@@ -202,11 +202,13 @@ Measured on 2026-11-16 with the P3 firmware: both ScreenKeys and the 1.3" OLED/E
 
 THI-76 decides two things: keep `rgb` key images or switch to a compressed format, and whether a 4×8 deck (32 keys) pages fast enough. A Companion page change redraws every key, so it is the worst case for transfer. P3 showed transfer, not drawing, sets the time: a 128×128 `rgb` key image is a 65,646 B line, received in a median of 192 ms and drawn in 26 ms at about 290–340 KB/s over Wi-Fi.
 
-`png` is the compressed format tried. `webp` is also offered, but a no_std WebP decoder would be a project of its own. The deck decodes PNG while streaming (`crates/deck-core/src/png.rs`): no whole-image buffer, about 45 KB of working memory (a 32 KB inflate window, about 11 KB of inflate state and three scanlines), taken from the heap the first time `png` is selected.
+`png` is the compressed format tried. `webp` is also offered, but a no_std WebP decoder would be a project of its own. The deck decodes PNG while streaming (`crates/deck-core/src/png.rs`): no whole-image buffer, about 45 KB of working memory (a 32 KB inflate window, about 11 KB of inflate state and three scanlines), taken from the heap at the first `png` registration.
+
+**Outcome:** the deck now asks for `png` whenever Companion offers it (decision below). The `rgb` rows were measured with a console switch (`image rgb|png`) that existed only for this comparison and has been removed; the `bench 16|32 [draw]` surface stays for THI-85.
 
 ### What was checked on the desktop (2026-11-16)
 
-The fake deck ran against the pinned Companion 5.1.3 container with both bench pages imported, ten page changes per cell (`tools/fake-deck/README.md`, "Bench pages"):
+A temporary bench mode of the fake deck (since removed) ran against the pinned Companion 5.1.3 container with both bench pages imported (`tools/fake-deck/README.md`, "Bench pages"), ten page changes per cell:
 
 - Companion sends a `KEY-STATE` for **every** key on a page change, 16 of 16 and 32 of 32 every time, including the page-nav buttons whose image didn't change.
 - Companion accepts a new layout from the same `SERIAL`, so `bench 16` → `bench 32` → `bench off` needs no other device ID.
@@ -219,32 +221,29 @@ Bytes on the wire per page change, which is what the deck will receive:
 | 16 | 1,050,178 B (65,636 B per key) | 77,126 B / 89,270 B | about 12–14× |
 | 32 | 2,100,354 B | 166,298 B / 192,646 B | about 11–13× |
 
-Desktop page-change times, press to last key (median of 10, localhost, Node): 16 `rgb` 108 ms, 16 `png` 83 ms, 32 `rgb` 170 ms, 32 `png` 130 ms. They show the tooling works. They say nothing about the deck, whose link is a hundred times slower.
-
-At the P3 throughput, transfer alone would be about 3.1–3.6 s for 16 `rgb` keys and 6.2–7.2 s for 32. For `png` it would be about 0.23–0.31 s and 0.5–0.66 s, plus decode time. These are estimates. The bench run below replaces them.
 
 ### Bench runbook
 
 1. Flash the firmware (`firmware/README.md`), with the deck's host set to the Companion running the bench pages.
 2. Import `tools/fake-deck/companion-config/bench-page-1.companionconfig` as page 1 (**Replace page 1**) and `bench-page-2.companionconfig` as a new page 2 (**[ Insert new page ]**).
-3. For each cell of the table, type its commands on the serial console, wait for the OLED to show "BENCH", then press key A and key B alternately for ten page changes. Key A is page up and key B page down, so the deck moves between the two filled pages and never onto an empty page 3.
+3. Type `bench 16` or `bench 32` (add `draw` to draw every key) on the serial console, wait for the OLED to show "BENCH", then press key A and key B alternately for ten page changes. Key A is page up and key B page down, so the deck moves between the two filled pages and never onto an empty page 3.
 4. Copy the `page changes over the last …: press to last key median … ms, max … ms; free heap … B` line, and one `page change` line for wire bytes and the receive and decode sums.
-5. `bench off` and `image rgb` (or a reboot) return to the normal surface.
+5. `bench off` (or a reboot) returns to the normal surface.
 
-The first `page change` line after registering has no press (`press to last none`): it is Companion's initial redraw. Leave it out.
+The first `page change` line after registering has no press (`press to last none`): it is Companion's initial redraw. Leave it out of press-to-last figures. Typing the same `bench` command again re-registers and gives another such redraw, which is enough to compare receive and decode sums without pressing anything.
 
 Measured on 2026-11-16 with the PR #7 firmware on the P3 Feather (two ScreenKeys, OLED module), same Wi-Fi access point as Companion 5.1.3 (`192.168.201.x`), ten or more page changes per cell. Decode is the `decode sum` divided by the key count.
 
-| Keys | Format | Draw | Commands | Wire B per page change | Decode ms per key | Press to last key, median / max |
+| Keys | Format | Draw | Command | Wire B per page change | Decode ms per key | Press to last key, median / max |
 |---|---|---|---|---|---|---|
-| 16 | `rgb` | decode only | `bench 16`, `image rgb` | 1,050,338 | 12 | about 3,600 ms (first byte to last key: median about 3,580, range 3,483–3,959)¹ |
-| 16 | `png` | decode only | `bench 16`, `image png` | 77,286 / 89,430 | 31 | 738 / 786 ms |
-| 32 | `rgb` | decode only | `bench 32`, `image rgb` | 2,100,674 | 11 | about 7,200 ms (first byte to last key: median about 7,180, range 6,993–7,303)¹ |
-| 32 | `png` | decode only | `bench 32`, `image png` | 166,618 / 192,966 | 30 | 1,468 / 1,624 ms |
-| 16 | `rgb` | draw | `bench 16 draw`, `image rgb` | 1,050,338 | 27 | 3,957 / 4,684 ms |
-| 16 | `png` | draw | `bench 16 draw`, `image png` | 77,286 / 89,430 | 50 | 1,056 / 1,379 ms |
-| 32 | `rgb` | draw | `bench 32 draw`, `image rgb` | 2,100,674 | 27 | 8,034 / 8,599 ms |
-| 32 | `png` | draw | `bench 32 draw`, `image png` | 166,618 / 192,966 | 50 | 2,136 / 2,476 ms |
+| 16 | `rgb` | decode only | `bench 16` | 1,050,338 | 12 | about 3,600 ms (first byte to last key: median about 3,580, range 3,483–3,959)¹ |
+| 16 | `png` | decode only | `bench 16` | 77,286 / 89,430 | 31 | 738 / 786 ms |
+| 32 | `rgb` | decode only | `bench 32` | 2,100,674 | 11 | about 7,200 ms (first byte to last key: median about 7,180, range 6,993–7,303)¹ |
+| 32 | `png` | decode only | `bench 32` | 166,618 / 192,966 | 30 | 1,468 / 1,624 ms |
+| 16 | `rgb` | draw | `bench 16 draw` | 1,050,338 | 27 | 3,957 / 4,684 ms |
+| 16 | `png` | draw | `bench 16 draw` | 77,286 / 89,430 | 50 | 1,056 / 1,379 ms |
+| 32 | `rgb` | draw | `bench 32 draw` | 2,100,674 | 27 | 8,034 / 8,599 ms |
+| 32 | `png` | draw | `bench 32 draw` | 166,618 / 192,966 | 50 | 2,136 / 2,476 ms |
 
 ¹ In these two cells the presses came about every 3 s, faster than a page change, so most press-to-last times include waiting for the previous page change. The first-byte-to-last-key times are unaffected; the one clean press-to-last sample was 3,604 ms (16) and 7,237 ms (32). Elsewhere press to last is 30–100 ms more than first byte to last.
 
@@ -268,7 +267,7 @@ PNG memory: `PNG decoder: 44676 B from the heap; free heap 90052 B -> 45376 B`. 
 
 ### Decisions
 
-- **Keep `rgb` or switch to `png`:** pending; it depends on how much heap the final board can spare (45 KB free on the Feather with `png`).
+- **Keep `rgb` or switch to `png`: switch to `png`** (decided 2026-11-16). Page changes are about 4× faster at both sizes. The decoder's 45 KB of heap leaves 45 KB free on the Feather, which ran every cell, including 8-second bursts, without trouble; a board with more RAM (or the Feather's unused PSRAM) removes the concern. The deck falls back to `rgb` when Companion doesn't offer `png`.
 - **Is 32 keys fast enough for the 4×8 deck, or what would it need?** With `png`, a 32-key page change takes 2.1 s, bound by decode and SPI on the deck. Ethernet would barely help. Building the decoder at `opt-level = 3` saved only about 4 % of decode time, so it wasn't kept. Further speed-up (overlapping receive with decode and draw, a faster decoder, batched SPI, a faster chip) is tracked in THI-85.
 
 ## Rotation amounts
