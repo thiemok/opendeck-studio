@@ -5,7 +5,7 @@ import { createInterface } from 'node:readline'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { parseArgs } from 'node:util'
 import { ImageSink } from './images.ts'
-import { formatPageChange, PageTimer } from './pagetime.ts'
+import { formatPageChange, type PageChange, PageTimer } from './pagetime.ts'
 import { type BenchKeys, benchControlIds, summariseLine } from './protocol.ts'
 import { executeCommand } from './repl.ts'
 import { DEFAULT_OPTIONS, FakeDeckSession } from './session.ts'
@@ -127,7 +127,7 @@ function main(): void {
 	})
 	const timer = keys ? new PageTimer(keys) : null
 	const benchIds = benchControlIds(keys)
-	const report = (change: ReturnType<PageTimer['tick']>) => {
+	const report = (change: PageChange | null) => {
 		if (!change || !timer) return
 		const line = formatPageChange(change, format)
 		record(`## ${line}`)

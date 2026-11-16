@@ -85,7 +85,7 @@ fn run(text: &str, store: &mut ConfigStore) {
             });
             println!(
                 "surface: {}; re-registering",
-                describe(SURFACE.lock(|s| s.get()))
+                Describe(SURFACE.lock(|s| s.get()))
             );
         }
         Ok(Command::Image(format)) => {
@@ -93,7 +93,7 @@ fn run(text: &str, store: &mut ConfigStore) {
             set_surface(SurfaceConfig { format, ..surface });
             println!(
                 "surface: {}; re-registering",
-                describe(SURFACE.lock(|s| s.get()))
+                Describe(SURFACE.lock(|s| s.get()))
             );
         }
         Ok(Command::Show) => {
@@ -101,7 +101,7 @@ fn run(text: &str, store: &mut ConfigStore) {
                 Some(config) => println!("host {}:{}", config.host(), config.port),
                 None => println!("no host set"),
             }
-            println!("surface: {}", describe(SURFACE.lock(|s| s.get())));
+            println!("surface: {}", Describe(SURFACE.lock(|s| s.get())));
         }
         Ok(Command::Help) => println!("{}", console::HELP),
         Err(ConsoleError::Empty) => {}
@@ -110,18 +110,22 @@ fn run(text: &str, store: &mut ConfigStore) {
 }
 
 /// The surface in console words, e.g. `bench 32 draw, png images`.
-pub fn describe(surface: SurfaceConfig) -> &'static str {
-    use deck_core::session::ImageFormat::{Png, Rgb};
-    match (surface.layout, surface.draw, surface.format) {
-        (Layout::Normal, _, Rgb) => "normal, rgb images",
-        (Layout::Normal, _, Png) => "normal, png images",
-        (Layout::Bench16, false, Rgb) => "bench 16, rgb images",
-        (Layout::Bench16, false, Png) => "bench 16, png images",
-        (Layout::Bench16, true, Rgb) => "bench 16 draw, rgb images",
-        (Layout::Bench16, true, Png) => "bench 16 draw, png images",
-        (Layout::Bench32, false, Rgb) => "bench 32, rgb images",
-        (Layout::Bench32, false, Png) => "bench 32, png images",
-        (Layout::Bench32, true, Rgb) => "bench 32 draw, rgb images",
-        (Layout::Bench32, true, Png) => "bench 32 draw, png images",
+pub struct Describe(pub SurfaceConfig);
+
+impl core::fmt::Display for Describe {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let SurfaceConfig {
+            layout,
+            format,
+            draw,
+        } = self.0;
+        match layout {
+            Layout::Normal => f.write_str("normal")?,
+            _ => write!(f, "bench {}", layout.bench_keys())?,
+        }
+        if draw && layout != Layout::Normal {
+            f.write_str(" draw")?;
+        }
+        write!(f, ", {} images", format.name())
     }
 }

@@ -4,7 +4,7 @@
 //! `deck_core::session::Session` decides; this task owns the socket, the clock and the
 //! displays.
 
-use crate::console::describe;
+use crate::console::Describe;
 use crate::display::{DrawError, KeyDisplay, Status, decode_only};
 use crate::inputs;
 use crate::oled::Oled;
@@ -317,8 +317,8 @@ async fn serve(
                                     **png = alloc_png_workspace();
                                 }
                                 info!(
-                                    "registered with Companion as {} ({} images); free heap {} B",
-                                    describe(surface),
+                                    "registered with Companion as {}; it sends {} images; free heap {} B",
+                                    Describe(surface),
                                     format.name(),
                                     esp_alloc::HEAP.free()
                                 );

@@ -221,12 +221,7 @@ impl Decoder {
                 }
                 Stage::Length => {
                     if self.collect(&mut data, 4) {
-                        let len = u32::from_be_bytes([
-                            self.field[0],
-                            self.field[1],
-                            self.field[2],
-                            self.field[3],
-                        ]);
+                        let len = be_u32(&self.field);
                         if len > i32::MAX as u32 {
                             return Err(PngError::Malformed);
                         }
@@ -269,12 +264,7 @@ impl Decoder {
                 }
                 Stage::Crc => {
                     if self.collect(&mut data, 4) {
-                        let stored = u32::from_be_bytes([
-                            self.field[0],
-                            self.field[1],
-                            self.field[2],
-                            self.field[3],
-                        ]);
+                        let stored = be_u32(&self.field);
                         if stored != self.crc.finish() {
                             return Err(PngError::BadCrc);
                         }
@@ -312,8 +302,7 @@ impl Decoder {
 
     fn check_header(&self) -> Result<Header, PngError> {
         let f = &self.ihdr;
-        let width = u32::from_be_bytes([f[0], f[1], f[2], f[3]]);
-        let height = u32::from_be_bytes([f[4], f[5], f[6], f[7]]);
+        let (width, height) = (be_u32(&f[..4]), be_u32(&f[4..8]));
         let (bit_depth, color_type, compression, filter, interlace) =
             (f[8], f[9], f[10], f[11], f[12]);
         if compression != 0 || filter != 0 {
@@ -402,8 +391,7 @@ impl Decoder {
                 (b, &*a)
             };
             // The row above the first one is all zeros.
-            let zeros = [0u8; 0];
-            let prev: &[u8] = if self.y == 0 { &zeros } else { &prev[..stride] };
+            let prev: &[u8] = if self.y == 0 { &[] } else { &prev[..stride] };
             unfilter(filter, bpp, &mut cur[..stride], prev);
             for (px, out) in cur[..stride]
                 .chunks_exact(bpp)
@@ -427,6 +415,11 @@ impl Decoder {
         }
         Ok(())
     }
+}
+
+/// The big-endian `u32` in the first four bytes of `bytes`.
+fn be_u32(bytes: &[u8]) -> u32 {
+    u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
 }
 
 /// Reverses one scanline's filter in place. An empty `prev` stands for a row of zeros.
