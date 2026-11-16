@@ -61,8 +61,8 @@ pub fn set_host(host: Option<HostConfig>) {
 
 /// Holds the longest `KEY-STATE` line: a 128×128 `rgb` bitmap is 65,536 B of base64 (KTD15).
 static LINE_BUF: ConstStaticCell<[u8; 72 * 1024]> = ConstStaticCell::new([0; 72 * 1024]);
-/// The socket's receive buffer is also its TCP window. 8 KB capped P3 bench throughput at
-/// about 290 KB/s; 32 KB lets more of each image be in flight.
+/// The socket's receive buffer, which is also its TCP window. Raising it from 8 KB to 32 KB
+/// did not change image receive time on the P3 bench (about 190 ms per key image either way).
 static RX_BUF: ConstStaticCell<[u8; 32 * 1024]> = ConstStaticCell::new([0; 32 * 1024]);
 static TX_BUF: ConstStaticCell<[u8; 2 * 1024]> = ConstStaticCell::new([0; 2 * 1024]);
 static CHUNK_BUF: ConstStaticCell<[u8; 2 * 1024]> = ConstStaticCell::new([0; 2 * 1024]);
