@@ -3,6 +3,8 @@
 //! The whole bitmap is checked before the first pixel is yielded, so a bad
 //! image is skipped rather than half-drawn.
 
+use crate::base64::{INVALID, SEXTETS};
+
 /// Why a bitmap was not drawn.
 #[derive(Debug, PartialEq, Eq)]
 pub enum BitmapError {
@@ -18,10 +20,13 @@ pub fn rgb565_pixels(
     width: u16,
     height: u16,
 ) -> Result<impl Iterator<Item = u16> + '_, BitmapError> {
-    Ok(rgb_pixels(b64, width, height)?.map(|[r, g, b]| {
-        let (r, g, b) = (u16::from(r), u16::from(g), u16::from(b));
-        ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
-    }))
+    Ok(rgb_pixels(b64, width, height)?.map(rgb565))
+}
+
+/// One RGB888 pixel as RGB565, by truncation.
+pub fn rgb565([r, g, b]: [u8; 3]) -> u16 {
+    let (r, g, b) = (u16::from(r), u16::from(g), u16::from(b));
+    ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
 }
 
 /// Checks `b64` against `width × height` and returns its `[r, g, b]` pixels in row-major order.
@@ -54,21 +59,6 @@ fn validate(text: &[u8]) -> Result<usize, BitmapError> {
         Err(BitmapError::InvalidBase64)
     }
 }
-
-const INVALID: u8 = 0xff;
-
-/// Base64 character to its 6-bit value, or `INVALID`. A table because the decode
-/// loop runs for every character of a 65 KB line.
-const SEXTETS: [u8; 256] = {
-    let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut table = [INVALID; 256];
-    let mut i = 0;
-    while i < alphabet.len() {
-        table[alphabet[i] as usize] = i as u8;
-        i += 1;
-    }
-    table
-};
 
 /// RGB pixels decoded on demand, four base64 characters per pixel.
 pub struct Pixels<'a> {
