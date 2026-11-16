@@ -24,7 +24,7 @@ Verified on 2026-11-13: `BEGIN CompanionVersion="5.1.3+10036-stable-93ea3fa61c" 
 
 1. Finish the first-run wizard in the web UI.
 2. **Variables → Custom Variables**: create a variable named `count`.
-3. **Import / Export → Import configuration**: pick `companion-config/fake-deck-page.companionconfig`, then **Replace page 1 with imported page**. For the hardware deck, pick `companion-config/hardware-deck-page.companionconfig` instead: the same buttons, one column to the right (`0/1` key A, `0/2` key B, `0/3` encoder).
+3. **Import / Export → Import configuration**: pick `companion-config/fake-deck-page.companionconfig`, then **Replace page 1 with imported page**. For the hardware deck, pick `companion-config/hardware-deck-page.companionconfig` instead: the same buttons one column to the right (`0/1` key A, `0/2` key B, `0/3` encoder). There the keys count their own presses in a second custom variable, `presses` (create it too), so a turn redraws only the OLED and a press only the keys.
 
 Page 1, row 0 then holds:
 
