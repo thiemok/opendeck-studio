@@ -67,7 +67,7 @@ Wi-Fi connected: …
 
 A chip revision below v3 isn't supported by esp-hal.
 
-For 3 s after boot the key shows a calibration test pattern. [`docs/notes/deck-wiring.md`](../docs/notes/deck-wiring.md) explains how to read it and how to check the switch.
+For 3 s after boot each key and the OLED show a calibration test pattern. [`docs/notes/deck-wiring.md`](../docs/notes/deck-wiring.md) explains how to read the keys' pattern and check the buttons, and [`docs/notes/oled-encoder-module.md`](../docs/notes/oled-encoder-module.md) covers the OLED and the encoder.
 
 ## Serial console
 
@@ -76,19 +76,31 @@ Type into the serial monitor (`cargo run` opens it, or `espflash monitor`) at 11
 | Command | Effect |
 |---|---|
 | `host <ip-or-name>[:port]` | Saves the Companion host to flash and reconnects at once. The port defaults to 16622. |
-| `host clear` | Forgets the host. The key shows "No host". |
+| `host clear` | Forgets the host. The displays show "No host". |
 | `show` | Prints the saved host. |
 | `help` | Lists the commands. |
 
 The host survives reboots and reflashing, because it lives in the `deckcfg` partition, not in the app image.
 
-## What the key shows
+## What the displays show
 
-| Key shows | Meaning |
+The keys and the OLED show the same states.
+
+| Displays show | Meaning |
 |---|---|
 | "No Wi-Fi" | Not joined, or no DHCP address yet |
 | "No host" | Wi-Fi is up, but no Companion host is set |
 | "Connecting" plus the host | Trying to reach and register with Companion; retries back off from 1 s to 5 s |
-| Companion's image | Registered. Presses go to Companion. |
+| Companion's images | Registered. Presses and encoder turns go to Companion. |
 
-Presses while the key isn't registered are dropped, not sent later. For a test Companion, use the pinned container in `tools/fake-deck/` (`docker compose up`). The deck appears as one 128×128 key on button `1/0/1` (page 1, row 0, column 1).
+Presses and encoder turns while the deck isn't registered are dropped, not sent later. For a test Companion, use the pinned container in `tools/fake-deck/` (`docker compose up`). The deck appears as one surface with three controls in row 0:
+
+| Control | Companion button | Shows | Input |
+|---|---|---|---|
+| Key A | `1/0/1` | 128×128 image | press and release |
+| Key B | `1/0/2` | 128×128 image | press and release |
+| Encoder | `1/0/3` | 128×64 image on the OLED, reduced to black and white | push and release; turn the knob for the button's rotate actions (enable **Rotary actions** in the button's options) |
+
+Design the encoder button white-on-black in Companion: mid-brightness colours turn black on the OLED. BACK and CONFIRM on the module are logged on the serial console and never sent to Companion.
+
+The log prints a `round trip` line for each press or turn answered by a new image, and every 20 samples the median and maximum. That is the P3 responsiveness measurement.
