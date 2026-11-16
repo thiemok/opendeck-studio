@@ -1,13 +1,19 @@
-//! The Companion link: connect, register, draw, send presses, recover (KTD15, KTD16, KTD17).
+//! The Companion link: connect, register, draw, send input, recover (KTD15, KTD16, KTD17,
+//! KTD20, KTD23, KTD26, KTD27).
 //!
-//! `deck_core::session::Session` decides; this task owns the socket, the clock and the display.
+//! `deck_core::session::Session` decides; this task owns the socket, the clock and the
+//! displays.
 
 use crate::display::{KeyDisplay, Status};
-use crate::{HOST, HOST_CHANGED, key};
+use crate::inputs;
+use crate::oled::Oled;
+use crate::{HOST, HOST_CHANGED, encoder};
+use deck_core::bitmap::BitmapError;
 use deck_core::config::HostConfig;
+use deck_core::latency::{RoundTrips, WINDOW};
 use deck_core::line::{Frame, LineFramer, LineWriter, Message};
-use deck_core::session::{Event, SILENCE_TIMEOUT_MS, Session};
-use embassy_futures::select::{Either, Either3, select, select3};
+use deck_core::session::{Control, Event, SILENCE_TIMEOUT_MS, Session};
+use embassy_futures::select::{Either, Either4, select, select4};
 use embassy_net::Stack;
 use embassy_net::dns::DnsQueryType;
 use embassy_net::tcp::TcpSocket;
@@ -25,6 +31,8 @@ const WRITE_TIMEOUT: Duration = Duration::from_millis(SILENCE_TIMEOUT_MS);
 /// 2 s `PING` with a `PONG`, so this only trips on a dead peer; backstop for any wait
 /// other than the write.
 const SOCKET_TIMEOUT: Duration = Duration::from_secs(10);
+/// Most `KEY-ROTATE` lines sent in one write (KTD23).
+const ROTATIONS_PER_SEND: u32 = 8;
 
 /// Buffers the link needs, all static so nothing large sits on a stack.
 pub struct Buffers {
@@ -35,6 +43,44 @@ pub struct Buffers {
     pub out: &'static mut [u8],
 }
 
+/// Every display the surface has (KTD20).
+pub struct Displays {
+    pub key_a: KeyDisplay,
+    pub key_b: KeyDisplay,
+    pub oled: Oled,
+}
+
+impl Displays {
+    /// Shows a link state on every display and sends the OLED's frame (KTD26).
+    async fn status(&mut self, status: Status<'_>) {
+        self.key_a.status(status);
+        self.key_b.status(status);
+        self.oled.status(status);
+        self.flush_oled().await;
+    }
+
+    /// Draws a Companion bitmap. The OLED's frame changes here; [`Self::flush_oled`] sends it.
+    fn bitmap(&mut self, control: Control, b64: &str) -> Result<(), BitmapError> {
+        match control {
+            Control::KeyA => self.key_a.bitmap(b64),
+            Control::KeyB => self.key_b.bitmap(b64),
+            Control::Encoder => self.oled.bitmap(b64),
+        }
+    }
+
+    fn blank(&mut self) {
+        self.key_a.blank();
+        self.key_b.blank();
+        self.oled.blank();
+    }
+
+    async fn flush_oled(&mut self) {
+        if let Err(e) = self.oled.flush().await {
+            warn!("OLED write failed: {e:?}");
+        }
+    }
+}
+
 /// The socket's receive, transmit and read-chunk buffers, lent to each connection attempt.
 struct SocketBuffers {
     rx: &'static mut [u8],
@@ -42,7 +88,7 @@ struct SocketBuffers {
     chunk: &'static mut [u8],
 }
 
-/// What the key currently shows when not registered, so it is redrawn only on change.
+/// What the displays currently show when not registered, so they are redrawn only on change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Shown {
     NoWifi,
@@ -65,7 +111,7 @@ enum Ended {
 )]
 pub async fn run(
     stack: Stack<'static>,
-    mut display: KeyDisplay,
+    mut displays: Displays,
     mut session: Session,
     bufs: Buffers,
 ) -> ! {
@@ -79,6 +125,7 @@ pub async fn run(
     let mut framer = LineFramer::new(line);
     let mut out = LineWriter::new(out);
     let mut sockets = SocketBuffers { rx, tx, chunk };
+    let mut round_trips = RoundTrips::new();
     let mut shown: Option<Shown> = None;
 
     loop {
@@ -89,13 +136,15 @@ pub async fn run(
             (true, Some(config)) => Shown::Connecting(config),
         };
         if shown != Some(want) {
-            display.status(match &want {
-                Shown::NoWifi => Status::NoWifi,
-                Shown::NoHost => Status::NoHost,
-                Shown::Connecting(config) => Status::Connecting {
-                    host: config.host(),
-                },
-            });
+            displays
+                .status(match &want {
+                    Shown::NoWifi => Status::NoWifi,
+                    Shown::NoHost => Status::NoHost,
+                    Shown::Connecting(config) => Status::Connecting {
+                        host: config.host(),
+                    },
+                })
+                .await;
             shown = Some(want);
         }
 
@@ -112,9 +161,12 @@ pub async fn run(
             stack,
             &config,
             &mut session,
-            &mut display,
-            &mut framer,
-            &mut out,
+            &mut Link {
+                displays: &mut displays,
+                round_trips: &mut round_trips,
+                framer: &mut framer,
+                out: &mut out,
+            },
             &mut sockets,
         )
         .await;
@@ -128,6 +180,14 @@ pub async fn run(
         }
         shown = None;
     }
+}
+
+/// What one connection works on, borrowed from [`run`].
+struct Link<'a, 'b, 'c> {
+    displays: &'a mut Displays,
+    round_trips: &'a mut RoundTrips,
+    framer: &'a mut LineFramer<'b>,
+    out: &'a mut LineWriter<'c>,
 }
 
 /// Waits up to `timeout`; a host change allows an immediate reconnect.
@@ -146,9 +206,7 @@ async fn connect_and_serve(
     stack: Stack<'static>,
     config: &HostConfig,
     session: &mut Session,
-    display: &mut KeyDisplay,
-    framer: &mut LineFramer<'_>,
-    out: &mut LineWriter<'_>,
+    link: &mut Link<'_, '_, '_>,
     sockets: &mut SocketBuffers,
 ) -> Option<Ended> {
     // Resolved on every attempt; an IP literal returns without a query.
@@ -178,10 +236,10 @@ async fn connect_and_serve(
     }
     info!("connected to {}:{}", config.host(), config.port);
     session.connected(now_ms());
-    framer.reset();
-    out.clear();
+    link.framer.reset();
+    link.out.clear();
 
-    let ended = serve(&mut socket, session, display, framer, out, sockets.chunk).await;
+    let ended = serve(&mut socket, session, link, sockets.chunk).await;
     socket.abort();
     Some(ended)
 }
@@ -193,26 +251,32 @@ async fn connect_and_serve(
 async fn serve(
     socket: &mut TcpSocket<'_>,
     session: &mut Session,
-    display: &mut KeyDisplay,
-    framer: &mut LineFramer<'_>,
-    out: &mut LineWriter<'_>,
+    link: &mut Link<'_, '_, '_>,
     chunk: &mut [u8],
 ) -> Ended {
+    let Link {
+        displays,
+        round_trips,
+        framer,
+        out,
+    } = link;
     let mut line_started = Instant::now();
     loop {
-        let input = select3(
+        let input = select4(
             socket.read(chunk),
             Timer::after(TICK),
-            select(key::EDGES.receive(), HOST_CHANGED.wait()),
+            inputs::EDGES.receive(),
+            select(encoder::TURNED.wait(), HOST_CHANGED.wait()),
         )
         .await;
         match input {
-            Either3::First(Ok(0) | Err(_)) => return Ended::Closed,
-            Either3::First(Ok(n)) => {
+            Either4::First(Ok(0) | Err(_)) => return Ended::Closed,
+            Either4::First(Ok(n)) => {
                 if framer.at_line_start() {
                     line_started = Instant::now();
                 }
                 let mut rejected = false;
+                let mut oled_changed = false;
                 framer.feed(&chunk[..n], |frame| match frame {
                     Frame::Overflow => warn!("skipped a line longer than the line buffer"),
                     Frame::Line(bytes) => {
@@ -228,20 +292,31 @@ async fn serve(
                                     esp_alloc::HEAP.free()
                                 );
                             }
-                            Event::Draw(b64) => {
+                            Event::Draw { control, bitmap } => {
                                 let received = line_started.elapsed();
                                 let draw_start = Instant::now();
-                                match display.bitmap(b64) {
-                                    Ok(()) => info!(
-                                        "bitmap {} B received in {} ms, drawn in {} ms",
-                                        bytes.len(),
-                                        received.as_millis(),
-                                        draw_start.elapsed().as_millis()
-                                    ),
-                                    Err(e) => warn!("bitmap not drawn: {e:?}"),
+                                match displays.bitmap(control, bitmap) {
+                                    Ok(()) => {
+                                        info!(
+                                            "{} bitmap {} B received in {} ms, drawn in {} ms",
+                                            control.id(),
+                                            bytes.len(),
+                                            received.as_millis(),
+                                            draw_start.elapsed().as_millis()
+                                        );
+                                        if control == Control::Encoder {
+                                            oled_changed = true;
+                                        } else {
+                                            record_round_trip(round_trips, control);
+                                        }
+                                    }
+                                    Err(e) => warn!("{} bitmap not drawn: {e:?}", control.id()),
                                 }
                             }
-                            Event::Blank => display.blank(),
+                            Event::Blank => {
+                                displays.blank();
+                                oled_changed = true;
+                            }
                             Event::Rejected(message) => {
                                 warn!("Companion rejected the device: {message}");
                                 rejected = true;
@@ -252,17 +327,44 @@ async fn serve(
                         line_started = Instant::now();
                     }
                 });
+                if oled_changed {
+                    // The I²C write is async, so it runs after the line callback (KTD22).
+                    displays.flush_oled().await;
+                    record_round_trip(round_trips, Control::Encoder);
+                }
                 if rejected {
                     return Ended::Rejected;
                 }
             }
-            Either3::Second(()) => {
+            Either4::Second(()) => {
                 if session.tick(now_ms(), out) == Event::Close {
                     return Ended::Silence;
                 }
             }
-            Either3::Third(Either::First(pressed)) => session.key(pressed, out),
-            Either3::Third(Either::Second(())) => return Ended::HostChanged,
+            Either4::Third((button, pressed)) => {
+                if let Some(control) = button.control() {
+                    if pressed && session.is_registered() {
+                        round_trips.sent(control, now_ms());
+                    }
+                    session.key(control, pressed, out);
+                } else {
+                    // BACK and CONFIRM stay on the device (KTD24); the inputs task logged it.
+                    debug!("{button:?} not sent to Companion");
+                }
+            }
+            Either4::Fourth(Either::First(())) => {
+                // A `KEY-ROTATE` line is about 75 B, so a batch stays well inside the 1 KB
+                // outgoing buffer; a longer spin is sent over several loops.
+                let detents = encoder::take_pending(ROTATIONS_PER_SEND);
+                // Dropped unless registered, like presses (KTD18, KTD23).
+                if session.is_registered() && detents != 0 {
+                    round_trips.sent(Control::Encoder, now_ms());
+                    for _ in 0..detents.unsigned_abs() {
+                        session.rotate(detents > 0, out);
+                    }
+                }
+            }
+            Either4::Fourth(Either::Second(())) => return Ended::HostChanged,
         }
 
         match out.bytes() {
@@ -281,6 +383,20 @@ async fn serve(
             None => warn!("outgoing line buffer overflowed; dropped"),
         }
         out.clear();
+    }
+}
+
+/// Logs a press-to-image sample when this draw answers a send, and a summary every so
+/// often (KTD27).
+fn record_round_trip(round_trips: &mut RoundTrips, control: Control) {
+    let Some(ms) = round_trips.drawn(control, now_ms()) else {
+        return;
+    };
+    info!("round trip {} {ms} ms", control.id());
+    if round_trips.summary_due()
+        && let (Some(median), Some(max)) = (round_trips.median(), round_trips.max())
+    {
+        info!("round trips over the last {WINDOW}: median {median} ms, max {max} ms");
     }
 }
 

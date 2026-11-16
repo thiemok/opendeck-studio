@@ -12,8 +12,20 @@ pub enum BitmapError {
     InvalidBase64,
 }
 
-/// Checks `b64` against `width × height` and returns its pixels in row-major order.
-pub fn rgb565_pixels(b64: &str, width: u16, height: u16) -> Result<Pixels<'_>, BitmapError> {
+/// Checks `b64` against `width × height` and returns its RGB565 pixels in row-major order.
+pub fn rgb565_pixels(
+    b64: &str,
+    width: u16,
+    height: u16,
+) -> Result<impl Iterator<Item = u16> + '_, BitmapError> {
+    Ok(rgb_pixels(b64, width, height)?.map(|[r, g, b]| {
+        let (r, g, b) = (u16::from(r), u16::from(g), u16::from(b));
+        ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
+    }))
+}
+
+/// Checks `b64` against `width × height` and returns its `[r, g, b]` pixels in row-major order.
+pub fn rgb_pixels(b64: &str, width: u16, height: u16) -> Result<Pixels<'_>, BitmapError> {
     let text = b64.as_bytes();
     let padding = validate(text)?;
     let expected = usize::from(width) * usize::from(height) * 3;
@@ -58,22 +70,22 @@ const SEXTETS: [u8; 256] = {
     table
 };
 
-/// RGB565 pixels decoded on demand, four base64 characters per pixel.
+/// RGB pixels decoded on demand, four base64 characters per pixel.
 pub struct Pixels<'a> {
     text: &'a [u8],
 }
 
 impl Iterator for Pixels<'_> {
-    type Item = u16;
+    type Item = [u8; 3];
 
-    fn next(&mut self) -> Option<u16> {
+    fn next(&mut self) -> Option<[u8; 3]> {
         let (quad, rest) = self.text.split_first_chunk::<4>()?;
         self.text = rest;
         let n = quad.iter().fold(0u32, |acc, &c| {
             (acc << 6) | u32::from(SEXTETS[usize::from(c)])
         });
-        let (r, g, b) = ((n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff);
-        Some((((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)) as u16)
+        let [_, r, g, b] = n.to_be_bytes();
+        Some([r, g, b])
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {

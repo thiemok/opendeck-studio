@@ -165,6 +165,39 @@ Measured on 2026-11-15 with the P2 firmware on a Feather ESP32 V2 (ESP32-PICO-V3
 - **First connection after a deck reboot.** The new connection gets `BEGIN` and `CAPS`, and the deck sends `ADD-DEVICE`. Companion then closes the device's stale connection from before the reboot, but never answers the new `ADD-DEVICE`. After 5 s the deck's silence watchdog closes it, and the retry 1 s later registers normally. So a reboot costs about 6 s before the key shows Companion's image. A fix could re-send `ADD-DEVICE` after a short timeout; it's left out because recovery is already automatic (R7).
 - **Startup hang (fixed).** With xtensa-lx-rt 0.23.0, every esp-hal app hung before `main` on this chip. The firmware uses a patched copy; see `firmware/vendor/README.md` and THI-77.
 
+## On hardware (P3)
+
+Measured on 2026-11-16 with the P3 firmware: both ScreenKeys and the 1.3" OLED/EC11 module on the same Feather, against the same Companion v5.1.3 container over WPA2 Wi-Fi. The operator pressed and turned; times come from the deck's own log lines. Round trips are from the press or detent being sent to the matching control's new image being drawn (KTD27 in the PoC plan).
+
+**Run 1**, with the P0 test page shifted to the deck's controls, where every control shows the same `count`, so each input redraws all three images (about 164 KB of base64):
+
+| Measurement | Result |
+|---|---|
+| Round trip, encoder and keys | median about 650 ms, max 777 ms |
+| 128×128 key image (65,646 B line) | received in about 226 ms on average (about 290 KB/s), drawn in 26–29 ms |
+| 128×64 OLED image (32,878 B line) | received in about 100 ms, converted and sent to the OLED in 7 ms |
+
+**Run 2**, after two changes: the deck's socket receive buffer went from 8 KB to 32 KB, and the test page (`hardware-deck-page.companionconfig`) gives the keys their own `presses` variable, so a turn redraws only the OLED and a press only the keys:
+
+| Measurement | Result |
+|---|---|
+| Round trip, encoder (50 samples) | median 165 ms, max 310 ms |
+| Round trip, keys (19 samples) | median 216 ms, max 516 ms |
+| 128×128 key image | received in a median 192 ms (max 250), the same as run 1 |
+| 128×64 OLED image | received in a median 99 ms |
+| Free heap | 111,056 B at boot, 65,432 B after registration with the 32 KB socket buffer (it took 24 KB from the DRAM heap region) |
+| Encoder, one slow full turn each way | 20 and 21 detents (the knob was turned a little past a full turn) |
+| Encoder, one fast full spin each way | 21 and 21 detents, so none lost at speed |
+| BACK and CONFIRM | logged on every press, nothing sent to Companion |
+
+**Findings:**
+
+- **The bar of about 100 ms is missed** (P3 Success Criteria): median 165 ms for the encoder and 216 ms for keys. The operator found the encoder much faster in run 2 and the keys still a bit slow, and agreed to optimise later.
+- **Transfer, not drawing, sets the time.** A key image needs about 190 ms on the wire and 26 ms to draw. The larger TCP window did not change the receive time, and Wi-Fi power saving is already off (esp-radio's default), so the limit is below the socket. Compressed images (THI-76, about 10× less data) are the likely fix. The buffer went back to 8 KB afterwards to keep the 24 KB of heap, so free heap after registration is about 90 KB again.
+- **What a button shows decides the cost.** Each image Companion changes is sent whole, so a press that changes several buttons pays for each. Run 1's shared `count` tripled the wait.
+- **Encoder direction was reversed:** the counter fell when turning clockwise, so `CLOCKWISE_SIGN` is now −1.
+- **Not run yet:** Companion stop/start recovery with three displays, the OLED's status screens, booting with the module unplugged, and input while disconnected. P2 covered recovery for one key.
+
 ## Rotation amounts
 
 `CAPS` advertises `ROTARY_AMOUNT=1`, and Companion passes the signed step count from `DIRECTION` to the button (clamped to ±100 *(source)*). But `DIRECTION=3` ran the button's *rotate right* action **once** (count 2 → 3), not three times. Actions see one rotate event. Firmware should therefore send one `KEY-ROTATE` with `DIRECTION=±1` per detent, unless Companion-side actions are written to read the step amount. Coalescing several detents into one message would silently drop steps.

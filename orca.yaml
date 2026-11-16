@@ -1,0 +1,41 @@
+scripts:
+  setup: |
+    set -euo pipefail
+    cd "$ORCA_WORKTREE_PATH"
+
+    # mise trusts config files per path, so every new worktree needs this once.
+    mise trust --quiet mise.toml
+    mise trust --quiet firmware/mise.toml
+    mise install
+
+    # Gitignored local files that a fresh worktree needs from the main checkout:
+    #   firmware/wifi.env           - build-time Wi-Fi credentials (KTD11); secrets
+    #   .esp/export-esp.sh          - espup's environment for the esp toolchain (KTD19)
+    #   .claude/settings.local.json - local Claude Code permissions
+    for f in firmware/wifi.env .esp/export-esp.sh .claude/settings.local.json; do
+      if [ -f "$ORCA_ROOT_PATH/$f" ] && [ ! -e "$f" ]; then
+        mkdir -p "$(dirname "$f")"
+        cp "$ORCA_ROOT_PATH/$f" "$f"
+        echo "copied $f"
+      fi
+    done
+
+    # No export file in the main checkout: generate one. espup reuses the toolchain
+    # already in ~/.rustup when it is the pinned version.
+    if [ ! -f .esp/export-esp.sh ]; then
+      mise run esp-toolchain
+    fi
+
+    # Without real credentials the firmware build fails by design. Use the committed
+    # placeholders so builds, clippy and CI-equivalent checks run; a firmware flashed
+    # with them never joins Wi-Fi ("No Wi-Fi" on the keys).
+    if [ ! -f firmware/wifi.env ]; then
+      cp firmware/wifi.env.example firmware/wifi.env
+      echo "WARNING: firmware/wifi.env is a placeholder; put real credentials in it before flashing"
+    fi
+
+    # The P0 fake-deck test bench (CI runs its tests too). Create Companion's data
+    # directory as the user: if Docker creates it, it is root-owned and the
+    # container exits with EACCES.
+    (cd tools/fake-deck && npm ci)
+    mkdir -p tools/fake-deck/companion-data

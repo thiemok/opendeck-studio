@@ -1,4 +1,4 @@
-//! The Satellite connection policy as a state machine (KTD12, KTD16, KTD18).
+//! The Satellite connection policy as a state machine (KTD12, KTD16, KTD18, KTD20).
 //!
 //! The firmware owns the socket and the clock; this owns the decisions. Every
 //! input carries `now` in milliseconds, outgoing lines are appended to a
@@ -8,10 +8,11 @@
 use crate::base64;
 use crate::line::{LineWriter, Message, Status};
 
-/// The one LCD key P2 registers: row 0, column 1 (KTD12).
-pub const KEY_CONTROL: &str = "0/1";
-/// Native ScreenKey size; Companion renders the key at exactly this size.
+/// Native ScreenKey size; Companion renders the keys at exactly this size.
 pub const KEY_SIZE: u16 = 128;
+/// The encoder control's OLED, which Companion renders at exactly this size (KTD20).
+pub const OLED_WIDTH: u16 = 128;
+pub const OLED_HEIGHT: u16 = 64;
 pub const PING_INTERVAL_MS: u64 = 2_000;
 /// A healthy link always has a `PONG` within this window.
 pub const SILENCE_TIMEOUT_MS: u64 = 5_000;
@@ -19,7 +20,34 @@ pub const BACKOFF_MIN_MS: u64 = 1_000;
 pub const BACKOFF_MAX_MS: u64 = 5_000;
 
 const PRODUCT_NAME: &str = "opendeck";
-const MANIFEST_JSON: &str = r#"{"stylePresets":{"default":{"bitmap":{"w":128,"h":128}}},"controls":{"0/1":{"row":0,"column":1,"stylePreset":"default"}}}"#;
+/// Two keys and the encoder in row 0; column 0 is left to Companion's page buttons (KTD12, KTD20).
+const MANIFEST_JSON: &str = r#"{"stylePresets":{"default":{"bitmap":{"w":128,"h":128}},"encoder":{"bitmap":{"w":128,"h":64}}},"controls":{"0/1":{"row":0,"column":1,"stylePreset":"default"},"0/2":{"row":0,"column":2,"stylePreset":"default"},"0/3":{"row":0,"column":3,"stylePreset":"encoder"}}}"#;
+
+/// A control the deck registers with Companion (KTD20).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Control {
+    KeyA,
+    KeyB,
+    /// Encoder rotation and push, shown on the OLED.
+    Encoder,
+}
+
+impl Control {
+    /// The `CONTROLID` Companion knows this control by.
+    pub fn id(self) -> &'static str {
+        match self {
+            Control::KeyA => "0/1",
+            Control::KeyB => "0/2",
+            Control::Encoder => "0/3",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Self> {
+        [Control::KeyA, Control::KeyB, Control::Encoder]
+            .into_iter()
+            .find(|c| c.id() == id)
+    }
+}
 
 /// `DEVICEID` and `SERIAL`, derived from the Wi-Fi MAC so Companion remembers
 /// the surface across reboots.
@@ -64,13 +92,17 @@ pub enum Event<'a> {
     None,
     /// `ADD-DEVICE OK`: the key now shows Companion's images.
     Registered,
-    /// Draw this base64 `rgb` bitmap on the key.
-    Draw(&'a str),
-    /// `KEYS-CLEAR`: blank the key.
+    /// Draw this base64 `rgb` bitmap on the control's display.
+    Draw {
+        control: Control,
+        bitmap: &'a str,
+    },
+    /// `KEYS-CLEAR`: blank every display.
     Blank,
     /// Close the socket (silence watchdog). Then call [`Session::closed`].
     Close,
-    /// `ADD-DEVICE ERROR`: log the message, close the socket, then call [`Session::closed`].
+    /// `ADD-DEVICE ERROR`, or a Companion without `NONSQUARE`: log the message, close the
+    /// socket, then call [`Session::closed`].
     Rejected(&'a str),
     /// A line the session understood but chose to ignore, with the reason for the log.
     Ignored(&'static str),
@@ -140,6 +172,10 @@ impl Session {
         self.last_rx_ms = now_ms;
         match (msg.command, msg.status) {
             ("CAPS", None) if self.state == LinkState::Handshake => {
+                // The 128×64 OLED preset needs non-square bitmaps (KTD20).
+                if msg.get("NONSQUARE").and_then(|v| v.as_bool()) != Some(true) {
+                    return Event::Rejected("Companion lacks NONSQUARE; it needs Companion 5.0+");
+                }
                 self.write_add_device(out);
                 Event::None
             }
@@ -155,13 +191,19 @@ impl Session {
                 out.command("PONG").raw(msg.rest()).end();
                 Event::None
             }
-            ("KEY-STATE", None) => match (msg.get("CONTROLID"), msg.get("BITMAP")) {
-                (Some(id), Some(bitmap)) if id.raw() == KEY_CONTROL => Event::Draw(bitmap.raw()),
-                (Some(id), _) if id.raw() == KEY_CONTROL => {
-                    Event::Ignored("KEY-STATE without BITMAP")
+            ("KEY-STATE", None) => {
+                let control = msg
+                    .get("CONTROLID")
+                    .and_then(|id| Control::from_id(id.raw()));
+                match (control, msg.get("BITMAP")) {
+                    (Some(control), Some(bitmap)) => Event::Draw {
+                        control,
+                        bitmap: bitmap.raw(),
+                    },
+                    (Some(_), None) => Event::Ignored("KEY-STATE without BITMAP"),
+                    (None, _) => Event::Ignored("KEY-STATE for an unknown control"),
                 }
-                _ => Event::Ignored("KEY-STATE for an unknown control"),
-            },
+            }
             ("KEYS-CLEAR", None) => Event::Blank,
             _ => Event::None,
         }
@@ -185,13 +227,26 @@ impl Session {
         Event::None
     }
 
-    /// A debounced key edge. Sent only while registered and never queued (KTD18).
-    pub fn key(&mut self, pressed: bool, out: &mut LineWriter<'_>) {
+    /// A debounced press edge on a key or the encoder push. Sent only while registered and
+    /// never queued (KTD18).
+    pub fn key(&mut self, control: Control, pressed: bool, out: &mut LineWriter<'_>) {
         if self.is_registered() {
             out.command("KEY-PRESS")
                 .quoted("DEVICEID", self.ids.device_id())
-                .quoted("CONTROLID", KEY_CONTROL)
+                .quoted("CONTROLID", control.id())
                 .bare("PRESSED", if pressed { "1" } else { "0" })
+                .end();
+        }
+    }
+
+    /// One encoder detent. Companion runs a rotate action once per message whatever the step
+    /// count, so each detent is its own `KEY-ROTATE` (KTD23). Dropped unless registered.
+    pub fn rotate(&mut self, clockwise: bool, out: &mut LineWriter<'_>) {
+        if self.is_registered() {
+            out.command("KEY-ROTATE")
+                .quoted("DEVICEID", self.ids.device_id())
+                .quoted("CONTROLID", Control::Encoder.id())
+                .bare("DIRECTION", if clockwise { "1" } else { "-1" })
                 .end();
         }
     }
@@ -255,9 +310,15 @@ mod tests {
             (event, sent(&w))
         }
 
-        fn key(&mut self, pressed: bool) -> Vec<String> {
+        fn key(&mut self, control: Control, pressed: bool) -> Vec<String> {
             let mut w = LineWriter::new(&mut self.buf);
-            self.session.key(pressed, &mut w);
+            self.session.key(control, pressed, &mut w);
+            sent(&w)
+        }
+
+        fn rotate(&mut self, clockwise: bool) -> Vec<String> {
+            let mut w = LineWriter::new(&mut self.buf);
+            self.session.rotate(clockwise, &mut w);
             sent(&w)
         }
 
@@ -328,7 +389,7 @@ mod tests {
     }
 
     #[test]
-    fn manifest_has_the_default_preset_and_one_key_at_row0_col1() {
+    fn manifest_has_two_keys_and_the_encoder_in_row_0() {
         let mut h = Harness::new();
         h.session.connected(0);
         let (_, sent) = h.line(0, "CAPS NONSQUARE=1");
@@ -338,10 +399,32 @@ mod tests {
             "{json}"
         );
         assert!(
-            json.contains(r#""0/1":{"row":0,"column":1,"stylePreset":"default"}"#),
+            json.contains(r#""encoder":{"bitmap":{"w":128,"h":64}}"#),
             "{json}"
         );
-        assert_eq!(json.matches("\"row\"").count(), 1, "exactly one control");
+        assert!(!json.contains("text"), "no TEXT requested: {json}");
+        for control in [
+            r#""0/1":{"row":0,"column":1,"stylePreset":"default"}"#,
+            r#""0/2":{"row":0,"column":2,"stylePreset":"default"}"#,
+            r#""0/3":{"row":0,"column":3,"stylePreset":"encoder"}"#,
+        ] {
+            assert!(json.contains(control), "{control} missing: {json}");
+        }
+        assert_eq!(json.matches("\"row\"").count(), 3, "exactly three controls");
+    }
+
+    #[test]
+    fn caps_without_nonsquare_is_rejected_and_sends_nothing() {
+        for caps in ["CAPS SUBSCRIPTIONS=0", "CAPS NONSQUARE=0"] {
+            let mut h = Harness::new();
+            h.session.connected(0);
+            let (event, sent) = h.line(0, caps);
+            assert!(event.starts_with("Rejected("), "{caps}: {event}");
+            assert!(event.contains("NONSQUARE"), "{caps}: {event}");
+            assert!(sent.is_empty(), "{caps}: {sent:?}");
+            h.session.closed(10);
+            assert!(!h.session.connect_due(10), "backs off");
+        }
     }
 
     #[test]
@@ -434,33 +517,86 @@ mod tests {
     fn key_edges_are_sent_only_while_registered() {
         let mut h = Harness::new();
         h.session.connected(0);
-        assert!(h.key(true).is_empty(), "handshake: dropped");
+        assert!(h.key(Control::KeyA, true).is_empty(), "handshake: dropped");
         h.register(0);
         assert_eq!(
-            h.key(true),
+            h.key(Control::KeyA, true),
             vec![r#"KEY-PRESS DEVICEID="opendeck-a0b7650102ff" CONTROLID="0/1" PRESSED=1"#]
         );
         assert_eq!(
-            h.key(false),
+            h.key(Control::KeyA, false),
             vec![r#"KEY-PRESS DEVICEID="opendeck-a0b7650102ff" CONTROLID="0/1" PRESSED=0"#]
         );
         h.session.closed(10);
-        assert!(h.key(true).is_empty(), "disconnected: dropped, not queued");
+        assert!(
+            h.key(Control::KeyA, true).is_empty(),
+            "disconnected: dropped, not queued"
+        );
     }
 
     #[test]
-    fn key_state_for_our_key_draws_its_bitmap() {
+    fn presses_carry_their_own_control_id() {
         let mut h = Harness::new();
         h.register(0);
-        let (event, _) = h.line(1, r#"KEY-STATE DEVICEID="d" CONTROLID="0/1" LOCATION="1/0/1" PRESSED=0 TYPE="BUTTON" BITMAP="AAAA""#);
-        assert_eq!(event, r#"Draw("AAAA")"#);
+        assert_eq!(
+            h.key(Control::KeyB, true),
+            vec![r#"KEY-PRESS DEVICEID="opendeck-a0b7650102ff" CONTROLID="0/2" PRESSED=1"#]
+        );
+        assert_eq!(
+            h.key(Control::Encoder, false),
+            vec![r#"KEY-PRESS DEVICEID="opendeck-a0b7650102ff" CONTROLID="0/3" PRESSED=0"#]
+        );
     }
 
     #[test]
-    fn key_state_for_another_control_is_ignored() {
+    fn each_detent_is_one_key_rotate_on_the_encoder() {
+        // Covers AE5 at protocol level.
         let mut h = Harness::new();
         h.register(0);
-        let (event, _) = h.line(1, r#"KEY-STATE DEVICEID="d" CONTROLID="0/2" BITMAP="AAAA""#);
+        assert_eq!(
+            h.rotate(true),
+            vec![r#"KEY-ROTATE DEVICEID="opendeck-a0b7650102ff" CONTROLID="0/3" DIRECTION=1"#]
+        );
+        assert_eq!(
+            h.rotate(false),
+            vec![r#"KEY-ROTATE DEVICEID="opendeck-a0b7650102ff" CONTROLID="0/3" DIRECTION=-1"#]
+        );
+        let mut w = LineWriter::new(&mut h.buf);
+        for _ in 0..5 {
+            h.session.rotate(true, &mut w);
+        }
+        assert_eq!(sent(&w).len(), 5);
+    }
+
+    #[test]
+    fn rotations_are_dropped_unless_registered() {
+        let mut h = Harness::new();
+        assert!(h.rotate(true).is_empty(), "disconnected");
+        h.session.connected(0);
+        assert!(h.rotate(true).is_empty(), "handshake");
+    }
+
+    #[test]
+    fn key_state_draws_on_the_control_it_names() {
+        let mut h = Harness::new();
+        h.register(0);
+        for (id, control) in [("0/1", "KeyA"), ("0/2", "KeyB"), ("0/3", "Encoder")] {
+            let line = format!(
+                r#"KEY-STATE DEVICEID="d" CONTROLID="{id}" PRESSED=0 TYPE="BUTTON" BITMAP="AAAA""#
+            );
+            let (event, _) = h.line(1, &line);
+            assert_eq!(
+                event,
+                format!(r#"Draw {{ control: {control}, bitmap: "AAAA" }}"#)
+            );
+        }
+    }
+
+    #[test]
+    fn key_state_for_an_unknown_control_is_ignored() {
+        let mut h = Harness::new();
+        h.register(0);
+        let (event, _) = h.line(1, r#"KEY-STATE DEVICEID="d" CONTROLID="0/4" BITMAP="AAAA""#);
         assert!(event.starts_with("Ignored"), "{event}");
     }
 

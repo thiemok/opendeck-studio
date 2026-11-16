@@ -14,8 +14,12 @@ execution: code
 
 - **Objective:** A self-built deck works as one Bitfocus Companion surface over Wi-Fi. Every piece of hardware on hand has been proven in it: two LCD keys, a rotary encoder with menu buttons, and an OLED. Enough has been learned to choose the final device shape and to start the Ethernet/PoE stages.
 - **Product authority:** This plan covers the proof-of-concept stages (P0–P4 below). The final device shape, Ethernet/PoE and scaling toward ~32 keys are context only. Each gets its own plan once the PoC is done.
-- **Open blockers:** None. The board, firmware framework and key module were settled in P1 (see `docs/notes/board-and-framework-decision.md`). The OLED/encoder module is identified in P3.
-- **Planning scope:** Implementation planning below covers P0 (R14, done: U1–U4) and P2 (R16: U5–U10). P1 (R15) was a spec-sheet decision and needed no implementation plan. P3 and P4 are planned one stage at a time, each enriching this file once the previous stage's findings are in.
+- **Open blockers:** None. The board, firmware framework and key module were settled in P1 (see `docs/notes/board-and-framework-decision.md`). The OLED/encoder module was identified from the vendor's schematics in the P3 brainstorm (see Dependencies / Assumptions) and is confirmed on the bench in P3.
+- **Planning scope:** Implementation planning below covers P0 (R14, done: U1–U4), P2 (R16, done: U5–U10) and P3 (R17: U11–U15). P1 (R15) was a spec-sheet decision and needed no implementation plan. P4 is planned, each enriching this file once the previous stage's findings are in.
+- **Objective (P3):** Both LCD keys and the OLED/encoder module work as one Companion surface. The encoder and OLED are a Companion control only, with no local menu. A measured press-to-image round trip shows the deck is responsive over Wi-Fi (R17). The local menu (R9, R10) is THI-80, and Companion-driven brightness is THI-81. Neither is P3 scope.
+- **Means (P3):** Extend the P2 firmware. The session registers three controls (KTD20), the keys share one SPI bus (KTD21), the OLED gets an in-tree SH1106 driver on async I²C (KTD22), and the encoder is counted by PCNT (KTD23). Pure logic stays in `deck-core` with host tests (KTD10).
+- **Execution profile (P3):** As for P2, plus the second key and the OLED/encoder module wired per Wiring (P3). An agent can build, host-test and lint everything. The bench and end-to-end checks in U13–U15 need the operator's hardware, and an agent records them as passed only from the operator's reported results.
+- **Stop conditions (P3):** Stop and report if the SH1106 answers at neither 400 kHz nor 100 kHz, or if PCNT cannot count the encoder's phases on the chosen pins. Either would change the module or the pin plan, which is the operator's call.
 - **Authority:** The Product Contract wins on behaviour, the Planning Contract's KTDs win on mechanism, and units override neither.
 - **Execution profile (P0):** A desktop-only spike, with a TypeScript (Node) fake-deck client and the latest Companion in a container on the Linux desktop. No hardware is involved.
 - **Stop conditions (P0):** Stop and report back if the latest Companion cannot register a layout-manifest surface with two keys and one encoder control. That would mean R2 cannot be met through the Satellite protocol as planned.
@@ -38,13 +42,17 @@ Build a microcontroller-based deck that connects to Bitfocus Companion as a netw
 
 The Elgato Stream Deck Studio is the reference: a networked, PoE-powered control surface with LCD keys and push-dials. Elgato's software stack doesn't fit this setup. Every desktop host runs Linux, and Elgato's Stream Deck app only exists for Windows and macOS. The Studio's network protocol is undocumented, and posing as an Elgato device is fragile and depends on Elgato's goodwill.
 
-The parts on hand are a Feather ESP32 V2, a Pico 2 W, a Pi Zero 2 W, two Waveshare 0.85" ScreenKey Module B keys (ST7735, 128×128), and a 1.3" I²C OLED module with a rotary encoder and menu buttons. Nothing has been built yet, and the OLED module isn't fully identified. The intended use is mostly dev work, but nothing is fixed. The deck must be general-purpose rather than tuned to one workflow.
+The parts on hand are a Feather ESP32 V2, a Pico 2 W, a Pi Zero 2 W, two Waveshare 0.85" ScreenKey Module B keys (ST7735, 128×128), and a 1.3" I²C OLED module with a rotary encoder and BACK/CONFIRM buttons. The intended use is mostly dev work, but nothing is fixed. The deck must be general-purpose rather than tuned to one workflow.
 
 ### Key Decisions
 
 - **Bitfocus Companion is the only host software; the Satellite protocol is the device contract.** Companion runs natively on Linux, its protocol is open and versioned, and missing integrations can be written as custom Companion modules. (session-settled: user-directed — chosen over Elgato's Stream Deck app, alone or alongside Companion: no Linux build, undocumented network protocol, depends on impersonating a device.) Governs R1, R2, R3.
 - **The deck is a pure network surface; Companion runs on a Linux desktop or server.** Companion can only run shell actions on the machine it runs on, so desktop-side dev actions work directly. (session-settled: user-directed — chosen over running Companion inside the deck on the Pi Zero 2 W: desktop actions would need extra plumbing.) Governs R1, R4.
 - **The OLED module is mode-switched.** It is normally a Companion control and becomes a local device menu on a menu-button action. (session-settled: user-directed — chosen over Companion-only or local-menu-only.) Governs R8, R9, R10.
+- **BACK and CONFIRM belong to the device; BACK opens the local menu.** Neither button is ever reported to Companion. The encoder's rotation and push are Companion's in control mode. (session-settled: user-directed — chosen over exposing both buttons to Companion as display-less buttons with a long-press menu gesture, and over sending CONFIRM to Companion: no long-press delay on any Companion input.) Governs R8, R9.
+- **P3 proves the hardware as a Companion surface; the local menu is its own issue.** P3 covers both keys and the encoder/OLED control. The local menu and its settings (R9, R10) move to THI-80. (session-settled: user-directed — chosen over a P3 menu with brightness only, and over a read-only P3 menu: keeps P3 to proving the hardware.) Governs R17.
+- **Companion's `BRIGHTNESS` is not honoured in P3.** The key backlights stay fully on, as in P2. THI-81 tracks it. (session-settled: user-directed — chosen over dimming backlights and OLED contrast from Companion in P3.) Governs R17.
+- **P3 responsiveness is measured, not gated.** The measurement and its bar are in Success Criteria. (session-settled: user-approved — chosen over a hard p95 target and over bench feel alone.) Governs Success Criteria.
 - **The deck runs on a microcontroller, not a Linux board.** It matches the appliance-style end goal: instant boot, low power and a proven PoE path. A desktop "fake deck" spike provides the protocol learning first. (session-settled: user-directed — chosen over a Pi Zero 2 W as the deck's brain, and over a Linux reference implementation later ported to a microcontroller.) Governs R14, R15.
 - **Compiled firmware with OTA updates; no MicroPython.** OTA keeps flashing out of the iteration loop. Governs R12, R13.
 - **The deck board is the Feather ESP32 V2.** It is the only candidate with mature OTA, it has a native Ethernet MAC on the same chip family as ready-made PoE boards, and its 2 MB PSRAM holds 128×128 image lines with room to spare. (session-settled: user-directed — chosen over the Pico 2 W: OTA on the RP2350 has no official flow, and its wired path is W5500 only.) Governs R15, R16.
@@ -72,13 +80,13 @@ The parts on hand are a Feather ESP32 V2, a Pico 2 W, a Pi Zero 2 W, two Wavesha
 
 - R5. Each LCD key shows the image Companion assigns it and updates when Companion changes it.
 - R6. Pressing and releasing a key reports press and release to Companion.
-- R7. When Companion is unreachable, the deck shows a clear disconnected/searching state and reconnects automatically when Companion returns.
+- R7. When Companion is unreachable, the deck shows a clear disconnected/searching state on every display, keys and OLED alike, and reconnects automatically when Companion returns.
 
 **Encoder and OLED**
 
-- R8. In control mode, encoder rotation, encoder push and the OLED appear in Companion as one control: rotation and push are reported to Companion, and the OLED shows that control's image or text from Companion.
-- R9. A menu-button action switches the OLED module into a local device menu and back; while the menu is open, encoder input goes to the menu and not to Companion.
-- R10. The local menu shows connection status and the Companion host, and lets the operator adjust brightness and Wi-Fi settings.
+- R8. In control mode, encoder rotation, encoder push and the OLED appear in Companion as one control. Each encoder detent is reported as one rotation step, push and release are reported, and the OLED shows that control's image from Companion.
+- R9. Pressing BACK switches the OLED module into a local device menu and back; while the menu is open, encoder input goes to the menu and not to Companion. (THI-80)
+- R10. The local menu shows connection status and the Companion host, and lets the operator adjust brightness and Wi-Fi settings. (THI-80)
 
 **Connectivity and updates**
 
@@ -91,7 +99,7 @@ The parts on hand are a Feather ESP32 V2, a Pico 2 W, a Pi Zero 2 W, two Wavesha
 - R14. P0, protocol spike: a desktop "fake deck" script registers with Companion, shows key images and sends presses. Done when the Satellite protocol's key/encoder/image behaviour is understood well enough to implement in firmware.
 - R15. P1, board and framework decision: the key module's controller and pinout are identified, and the Pico 2 W and Feather ESP32 are compared from spec sheets on OTA, Wi-Fi plus Satellite, ST7735 support and toolchain. A written decision names one board and one firmware framework with reasons. It also records each board's path to wired Ethernet/PoE and its headroom for more keys. Done in `docs/notes/board-and-framework-decision.md`.
 - R16. P2, first key on the chosen board: one LCD key works end-to-end with Companion (R5, R6), on the firmware stack chosen in R15.
-- R17. P3, full PoC: both keys, the encoder and the OLED with its local menu work together as one surface (R2–R10). The OLED/encoder module is identified and documented.
+- R17. P3, full PoC: both keys and the encoder/OLED control work together as one surface, meeting R2 and R5–R8. BACK and CONFIRM are wired and their presses are logged, but they do nothing until THI-80 adds the local menu. The OLED/encoder module is identified and documented.
 - R18. P4, OTA and wrap-up: OTA works on the full PoC (R12, R13), and a written findings note feeds the final-shape decision (key count, display technology, enclosure, Ethernet/PoE hardware). The note records measured image memory per key, the time to refresh all keys after a Companion page change, and SPI redraw time per display, extrapolated to ~32 keys for both the per-key and shared-panel options.
 
 ### PoC Stages
@@ -100,15 +108,17 @@ The parts on hand are a Feather ESP32 V2, a Pico 2 W, a Pi Zero 2 W, two Wavesha
 flowchart TB
   P0[P0 Protocol spike on desktop] --> P1[P1 Board + framework decision]
   P1 --> P2[P2 First key on chosen board]
-  P2 --> P3[P3 Full PoC: 2 keys + encoder + OLED menu]
+  P2 --> P3[P3 Full PoC: 2 keys + encoder/OLED control]
   P3 --> P4[P4 OTA + findings]
+  P3 --> M[Local menu, THI-80]
+  P3 --> B[Companion brightness, THI-81]
   P4 --> D{Final shape decision}
   D --> E[Later: Ethernet]
   E --> F[Later: PoE]
   D --> S[Later: scale toward ~32 keys]
 ```
 
-Each stage is defined by its requirement (R14–R18). The stages after the decision point are context, not scope.
+Each stage is defined by its requirement (R14–R18). The stages after the decision point are context, not scope. THI-80 and THI-81 follow P3 as separate issues. Their order relative to P4 is open.
 
 ### Key Flows
 
@@ -122,11 +132,16 @@ Each stage is defined by its requirement (R14–R18). The stages after the decis
   - **Actors:** A1, A3, A2
   - **Steps:** The deck reports press and release. Companion runs the action and may push a new image, which the deck shows.
   - **Covered by:** R5, R6
-- F3. Use the encoder, then open the local menu
-  - **Trigger:** The operator turns or pushes the encoder, then uses the menu-button action.
+- F3. Use the encoder
+  - **Trigger:** The operator turns or pushes the encoder.
   - **Actors:** A1, A3, A2
-  - **Steps:** In control mode, input goes to Companion and the OLED shows Companion's content. The menu action switches to the local menu, where encoder input navigates the menu. Leaving the menu returns to control mode with Companion's content restored.
-  - **Covered by:** R8, R9, R10
+  - **Steps:** Each detent and each push and release goes to Companion. Companion runs the control's actions and may push a new image, which the OLED shows.
+  - **Covered by:** R8
+- F5. Open the local menu (THI-80)
+  - **Trigger:** The operator presses BACK.
+  - **Actors:** A1, A3, A2
+  - **Steps:** The OLED switches to the local menu, where encoder input navigates the menu. Leaving the menu returns to control mode with Companion's content restored.
+  - **Covered by:** R9, R10
 - F4. Update firmware
   - **Trigger:** The operator pushes a new firmware build.
   - **Actors:** A1, A3
@@ -136,19 +151,25 @@ Each stage is defined by its requirement (R14–R18). The stages after the decis
 ### Acceptance Examples
 
 - AE1. **Covers R7.** **Given** the deck is connected, **when** Companion is stopped, **then** the deck shows the disconnected state within a few seconds, **and** when Companion restarts it reconnects and restores the key images without operator action.
-- AE2. **Covers R9.** **Given** the local menu is open, **when** the operator turns the encoder, **then** the menu moves and Companion receives no rotation events.
-- AE3. **Covers R9, R8.** **Given** Companion changed the encoder control's image while the local menu was open, **when** the operator leaves the menu, **then** the OLED shows Companion's latest content.
+- AE2. **Covers R9 (THI-80).** **Given** the local menu is open, **when** the operator turns the encoder, **then** the menu moves and Companion receives no rotation events.
+- AE3. **Covers R9, R8 (THI-80).** **Given** Companion changed the encoder control's image while the local menu was open, **when** the operator leaves the menu, **then** the OLED shows Companion's latest content.
+- AE5. **Covers R8.** **Given** the encoder control's button in Companion has rotary actions that count steps, **when** the operator turns the encoder five detents right and then two left, **then** the right action runs exactly five times, the left action exactly twice, and the OLED shows the updated image.
+- AE6. **Covers R17.** **Given** the P3 deck is connected, **when** the operator presses BACK or CONFIRM, **then** the press is logged on the serial console, Companion receives nothing, and the OLED keeps Companion's content.
 - AE4. **Covers R13.** **Given** a firmware image pushed without the OTA password, **when** it reaches the deck, **then** the deck rejects it and keeps running its current firmware.
 
 ### Success Criteria
 
 - The full PoC (P3) feels responsive in daily use: a key press triggers its Companion action, and the key's new image appears, without noticeable delay over Wi-Fi.
+- P3's notes record the measured time from a key press, and from an encoder detent, to the matching image being drawn, as median and worst case over a bench session. A median of about 100 ms or less backs "feels instant". A miss is recorded as a finding to investigate, not a failed stage.
 - The P4 findings note is enough to decide the final shape without repeating PoC experiments.
 
 ### Scope Boundaries
 
 **Deferred for later**
 
+- The local device menu and its Wi-Fi and brightness settings (R9, R10, F5, AE2, AE3): THI-80, after P3. Until then, Wi-Fi credentials stay compiled into the firmware (KTD11).
+- Honouring Companion's `BRIGHTNESS` on the key backlights and OLED contrast: THI-81, after P3.
+- Encoder acceleration: P3 sends one step per detent.
 - Ethernet and PoE: separate stages after the final-shape decision, needing hardware not yet owned (e.g. a W5500 module or an ESP32 PoE board).
 - Scaling toward ~32 keys, choosing display technology (one display per key vs a shared panel) and enclosure design.
 - Custom Companion modules for specific dev workflows.
@@ -165,7 +186,14 @@ Each stage is defined by its requirement (R14–R18). The stages after the decis
 
 - A current Companion release is available on a Linux host, and the PoC is tested against the latest stable release only. Per the Satellite API docs, layout manifests (separate LCD key and encoder/OLED controls with their own bitmap sizes) need Companion 4.2+ (API 1.9), and non-square bitmaps need Companion 5.0+ (API 1.11). Older versions are not tested.
 - The key modules are Waveshare 0.85" ScreenKey Module B: ST7735 over SPI, 128×128, 3.3 V, with a mechanical switch (identified in P1). The KEY output's polarity and pull-up needs and the panel offset are checked on the bench in P2.
-- The OLED module is an I²C display plus encoder and buttons. This is an assumption until it is identified in P3.
+- The OLED/encoder module is the "1.3-inch OLED + EC11 rotary encoder combination module" (Javino/Liludin, sold by Weinuo Module Store), identified from the vendor's interface description and schematics (2026-11-16). The operator confirmed it matches the part on hand. The facts below come from the schematics; P3 confirms them on the bench and records them in `docs/notes/`.
+  - **Display:** 1.3" white 128×64 SH1106 over I²C. Strapping fixes I²C mode at address 0x3C. The reset is a power-on RC circuit not routed to the header, so firmware can re-initialise the panel but not hard-reset it. 10 kΩ I²C pull-ups to 3V3 are fitted.
+  - **Encoder:** EC11, 20 pulses and 20 detents per turn, with a push switch. Phases A and B have 10 kΩ pull-ups and an RC filter (100 Ω, 100 nF). The common pin is GND.
+  - **Buttons:** BACK (`KEY0`) and CONFIRM (`KEY1`). These and the encoder push each have a 10 kΩ pull-up and 100 nF, and read low when pressed.
+  - **Header J1:** 1 +3V3, 2 GND, 3 BAK, 4 TRB, 5 TRA, 6 PSH, 7 SCL, 8 SDA, 9 CON. The front silkscreen lists them in reverse.
+  - **Power:** the vendor describes VCC as a 3.3 V supply; the back silkscreen says 3.3–5 V. The deck feeds 3.3 V so the on-board pull-ups stay at ESP32 levels.
+  - **Pins:** the module needs I²C (GPIO 22/20, reserved in P1) plus five inputs. With on-board pull-ups, the Feather's input-only pins 34/36/37/39 can take four of them.
+  - **Bench checks:** the SH1106 column offset (commonly 2) and the encoder's rotation sense.
 - The Rust no_std crates (`esp-hal`, `esp-radio`, `esp-bootloader-esp-idf`) are pinned per stage. `esp-radio` is pre-1.0, so upgrades may need migration work.
 - The Pi Zero 2 W is not part of the deck. It may serve as a spare headless Companion host or test bench.
 - The LAN is trusted for Satellite traffic, which is unauthenticated. Only OTA needs protection (R13).
@@ -178,16 +206,17 @@ Each stage is defined by its requirement (R14–R18). The stages after the decis
 
 **Deferred to Planning**
 
-- How Wi-Fi settings are changed from the local menu (R10, P3). For P2, credentials are set at build time and the Companion host over USB serial (KTD11).
+- How Wi-Fi settings are changed from the local menu (R10). This moved to THI-80 with the menu. Until then, credentials are set at build time and the Companion host over USB serial (KTD11).
 - Whether compressed key bitmaps (`png`/`webp`) are worth their decode cost at scale. P2 uses 128×128 `rgb` (KTD12), and THI-76 tracks the comparison.
 - How OTA rollback is confirmed (e.g. the new image is marked valid only after `ADD-DEVICE OK`) and how builds are uploaded behind the R13 password (P4).
-- Which menu-button action opens the local menu (e.g. long press vs a dedicated button), once the module's buttons are known.
-- What measurement backs the responsiveness criterion, if one is needed.
+- How Companion's image becomes 1-bit on the OLED (P3): answered by KTD22, a fixed threshold.
+- Where the second key and the encoder control sit in Companion's grid, and which Feather pins each new input uses (P3): answered by KTD20 and KTD25.
 
 ### Sources / Research
 
 - P1 board, framework and key module decision, with its own sources: `docs/notes/board-and-framework-decision.md`
 - P2 firmware research (2026-11-14), which shapes KTD9–KTD19: [mise Rust docs](https://mise.jdx.dev/lang/rust.html), [mise environments](https://mise.jdx.dev/environments/), [esp-radio README](https://github.com/esp-rs/esp-hal/blob/main/esp-radio/README.md), the esp-hal v1.2.2 examples ([`embassy_dhcp`](https://github.com/esp-rs/esp-hal/blob/esp-hal-v1.2.2/examples/wifi/embassy_dhcp/src/main.rs), [`flash_read_write`](https://github.com/esp-rs/esp-hal/blob/esp-hal-v1.2.2/examples/peripheral/flash_read_write/src/main.rs), [`ota/update`](https://github.com/esp-rs/esp-hal/tree/esp-hal-v1.2.2/examples/ota/update)), [esp-generate](https://github.com/esp-rs/esp-generate), [mipidsi 0.10](https://docs.rs/mipidsi/0.10.0/mipidsi/), [embassy-net 0.9.1 TcpSocket](https://docs.rs/embassy-net/0.9.1/embassy_net/tcp/struct.TcpSocket.html), [WPA3 issue esp-hal#1600](https://github.com/esp-rs/esp-hal/issues/1600), [throughput issue esp-hal#6698](https://github.com/esp-rs/esp-hal/issues/6698)
+- OLED/encoder module listing, with its interface description and schematics in the product description (read 2026-11-16): https://de.aliexpress.com/item/1005010470649235.html
 - Companion Satellite API: https://companion.free/for-developers/Satellite-API and https://companion.free/user-guide/remote_control/satellite
 - Companion 3.4 release (Stream Deck Studio support, surfaces over 32 keys; background only, below the version baseline): https://newreleases.io/project/github/bitfocus/companion/release/v3.4.0
 - Companion module development: https://companion.free/for-developers/setting-up-developer-environment
@@ -202,7 +231,7 @@ Product Contract preservation:
 - **P0 (changed):** Dependencies / Assumptions (Companion version). P0 now tests against the latest Companion only and no longer confirms a minimum version. The user directed this change. The documented requirements still stand: layout manifests need API 1.9 (Companion 4.2), and non-square bitmaps need API 1.11 (Companion 5.0).
 - **P2 (unchanged):** Requirements are unchanged. Outstanding Questions were narrowed to what is still open after P2's planning decisions (KTD11, KTD12).
 
-This contract plans P0 (R14) and P2 (R16). P1 (R15) was settled without an implementation plan, and P3–P4 (R17–R18) are not yet planned. Each stage is planned on its own, using the previous stage's findings.
+This contract plans P0 (R14), P2 (R16) and P3 (R17). P1 (R15) was settled without an implementation plan, and P4 (R18) is not yet planned. Product Contract preservation (P3 planning): Product Contract unchanged; the two P3 questions deferred to planning are answered by KTD20, KTD22 and KTD25. Each stage is planned on its own, using the previous stage's findings.
 
 ### Key Technical Decisions (P0)
 
@@ -331,7 +360,7 @@ docs/notes/
   
   `Cargo.lock` holds the exact versions. Upgrades are deliberate migrations, because esp-radio is still in beta.
 - KTD10. **There are two cargo roots: a host workspace for pure logic, and a separate firmware root.** The root `Cargo.toml` is a host workspace with `crates/deck-core`, tested with `cargo test` on a stable host toolchain. `crates/deck-core` is a `no_std` library with no esp or embassy dependencies; time is passed in as milliseconds, and flash is reached through the `embedded-storage` traits. `firmware/` is excluded from that workspace and has its own `.cargo/config.toml`, `rust-toolchain.toml` (`channel = "esp"`) and lockfile. Cargo config and toolchain files apply by directory, so a shared root would make host tests build for Xtensa. On-target tests are not possible: the Feather's CH9102F is USB-UART only, with no JTAG.
-- KTD11. **Wi-Fi credentials are set at build time, and the Companion host at runtime over USB serial.** (session-settled: user-directed — chosen over a serial console for both, a captive portal, and serial plus mDNS discovery: least code before the first key works, and the P3 menu takes over Wi-Fi settings for R10.) `firmware/build.rs` reads the gitignored `firmware/wifi.env`, which holds `DECK_WIFI_SSID` and `DECK_WIFI_PASSWORD`. It passes both to the compiler and rebuilds when the file changes. If the file is missing, the build fails with an error that names the file. The access point must offer WPA2-Personal, because esp-radio has no WPA3/SAE (esp-hal#1600). The serial console is KTD13.
+- KTD11. **Wi-Fi credentials are set at build time, and the Companion host at runtime over USB serial.** (session-settled: user-directed — chosen over a serial console for both, a captive portal, and serial plus mDNS discovery: least code before the first key works, and the local menu takes over Wi-Fi settings for R10, now in THI-80.) `firmware/build.rs` reads the gitignored `firmware/wifi.env`, which holds `DECK_WIFI_SSID` and `DECK_WIFI_PASSWORD`. It passes both to the compiler and rebuilds when the file changes. If the file is missing, the build fails with an error that names the file. The access point must offer WPA2-Personal, because esp-radio has no WPA3/SAE (esp-hal#1600). The serial console is KTD13.
 - KTD12. **The deck registers one 128×128 `rgb` key as control `0/1` (row 0, column 1).** (session-settled: user-directed — chosen over 128×128 `png`, which needs an inflate decoder and about 32 KB of working memory in the first hardware stage, and over a smaller preset, which needs scaling or a border: native size, no decoder. THI-76 revisits compression.) `ADD-DEVICE` sends no `BITMAP_FORMAT`. Column 1 avoids the page buttons a new Companion page puts in column 0 (P0 notes, Layout manifest). P3 lays out the full surface.
 - KTD13. **The serial console is a receive-only async UART beside the logger.** `UartRx` on UART0 RX (GPIO3) runs at 115200 baud, and esp-println keeps TX through the ROM routine. The commands are:
   - `host <hostname-or-ip>[:port]`, where the port defaults to 16622
@@ -462,7 +491,7 @@ These pin assignments are planned and become fixed when U8 confirms them on the 
 
 - **PSRAM heap:** a single key fits in internal RAM, and PSRAM forces release-only builds and blocks DMA on classic ESP32. Revisit when P3's second key and OLED show memory pressure.
 - **Async raw-command ST7735 driver:** a 10 ms blocking draw is fine for one key. Revisit if P4 measures redraw stalls hurting Wi-Fi at higher key counts.
-- **`BRIGHTNESS` handling:** no P2 requirement needs it, and the backlight stays fully on. P3 brings brightness with R10.
+- **`BRIGHTNESS` handling:** no P2 requirement needs it, and the backlight stays fully on. THI-81 honours Companion's value, and THI-80 adds the menu setting (R10).
 - **Queuing presses made while offline:** replaying stale presses later would run actions the operator didn't mean to run now (KTD18).
 - **A `NONSQUARE` gate:** P2 has no non-square control (KTD16).
 - **On-device automated tests and firmware CI:** with no JTAG, on-device tests can't run; host tests cover the logic. Revisit if an ESP-Prog is added.
@@ -483,6 +512,89 @@ These pin assignments are planned and become fixed when U8 confirms them on the 
 - The final pins, panel offset, colour order, inversion, SPI clock and debounce interval, all from U8's bench run.
 - How the status screens are laid out on 128×128.
 - The exact text of serial command replies and error messages.
+
+### Key Technical Decisions (P3)
+
+- KTD20. **The surface registers three controls in one row, and P3 requires `NONSQUARE`.** The keys are `0/1` (P2's key, so its Companion button keeps working) and `0/2`, and the encoder control is `0/3`. The manifest has two presets: `default` at 128×128 for the keys, and `encoder` at 128×64 with a bitmap only. P0 requested text for comparison, and its recommendation drops it. A `CAPS` without `NONSQUARE` ends the connection as a rejection: no `ADD-DEVICE` is sent, the reason is logged, and the link backs off (KTD16 promised this check for P3). The session reports which control a `KEY-STATE` is for, and sends presses and rotations with their own control IDs. Governs R2, R8.
+- KTD21. **Both keys share SPI2, DC and RST; each has its own CS and KEY line.** The two panels share one SPI bus through `embedded-hal-bus`'s `RefCellDevice`, and one DC pin through a small shared-pin wrapper. Only the first panel takes the RST pin, so its init resets both, and the second panel then initialises without a reset. Draws stay blocking (KTD15), so the worst case is two 26 ms key draws back to back. U15's measurement shows whether that matters.
+- KTD22. **The OLED gets a minimal in-tree SH1106 driver over async I²C, fed from a 1-bit framebuffer in `deck-core`.** I²C0 runs at 400 kHz on SDA GPIO22 and SCL GPIO20, talking to address 0x3C. The driver sends the init sequence, then writes eight 128-byte pages at a column offset (2 until U14 measures it). It is async, because a 1 KB frame takes about 25 ms at 400 kHz and must not stall the executor on top of the SPI draws. `deck-core` converts Companion's 128×64 `rgb` bitmap into a 1,024-byte page-major buffer with a fixed luma threshold (≥ 128 lit), as P0 recommended. The firmware draws status screens into the same buffer through embedded-graphics. A third-party SH1106 crate was not chosen: the device needs only init plus page writes, and the stack is pinned and upgraded deliberately (KTD9). Governs R7, R8.
+- KTD23. **The encoder is counted in hardware by PCNT, and the link sends one `KEY-ROTATE` per detent.** One PCNT unit decodes the two phases in quadrature with its glitch filter on, so no edge is lost while a blocking SPI draw stalls the executor. That matters because every detent makes Companion redraw the OLED (AE5). The ESP32's counter resets to zero when it reaches its high or low limit rather than wrapping, so the unit's limits are set to ± a multiple of the counts per detent (for example ±4,000). A 5 ms task reads the count, and `deck-core` turns successive readings into whole detents: it takes deltas modulo that limit and keeps partial steps. U14 confirms the reset behaviour. The task adds detents to a shared pending count and wakes the link. While registered, the link drains the count into one `KEY-ROTATE DIRECTION=±1` per detent (P0 notes, Rotation amounts). While not registered, it drops the count, as KTD18 does for presses. A channel per detent was rejected because it can overflow during a fast spin while the link is drawing. Software decoding by GPIO polling was rejected because it misses transitions during draws. Governs R8.
+- KTD24. **One inputs task samples all five buttons and debounces them in `deck-core`.** It replaces P2's key task. It samples key A, key B, the encoder push, BACK and CONFIRM every 2 ms, debounces each with the existing 20 ms `Debouncer`, and sends `(button, pressed)` edges to the link. Keys and the push become `KEY-PRESS` for their control (KTD18 rules). BACK and CONFIRM are logged and never reported to Companion. The three module buttons rely on the module's own 10 kΩ pull-ups; the keys keep the internal pull-up. Governs R6, R8, R17.
+- KTD25. **The encoder phases avoid GPIO36 and GPIO39.** Per the ESP32 errata, those two inputs see short low glitches when some RTC peripherals power up. Debounced buttons ignore them, but an edge counter might not. The phases go on GPIO34 and GPIO4; the push, BACK and CONFIRM take GPIO36, GPIO39 and GPIO37. Key B uses GPIO26 (CS) and GPIO25 (KEY, internal pull-up). None of these is a strapping pin. The full table is Wiring (P3).
+- KTD26. **Every display shows the link status (R7); a missing OLED doesn't stop the deck.** The keys keep the KTD17 screens. The OLED shows the same state ("No Wi-Fi", "No host", or "Connecting" with the host) in a 128×64 layout. `KEYS-CLEAR` blanks all three displays. If the OLED doesn't answer at init or on a write, the error is logged and the keys carry on. A single module fault shouldn't take down the whole surface. Governs R7.
+- KTD27. **Round trips are measured on the device and summarised in the log.** When a key press edge (press, not release) or a rotation is sent, `deck-core` records the time for that control, unless an earlier send for it is still unanswered, so a burst of detents is timed from its first one. The next completed draw for the same control within 2 s yields one sample, logged with the control and the milliseconds. After every 20 samples, the firmware logs the median and the maximum over the last 64. Companion's processing is included, so the bench buttons must change their own image on press and on rotation. Implements the responsiveness Key Decision (user-approved), whose bar is in Success Criteria.
+
+### High-Level Technical Design (P3)
+
+Firmware tasks and data flow after P3. New parts are the inputs task, the encoder path, the OLED and the second key:
+
+```mermaid
+flowchart TB
+  Inputs[Inputs task: 5 buttons, 2 ms sample, debounce] -->|button edge| Link
+  PCNT[PCNT unit: quadrature count in hardware] --> Enc[Encoder task: 5 ms read, counts to detents]
+  Enc -->|pending detents + wake| Link[Link task: session, routing, round-trip timing]
+  Link -->|KEY-PRESS / KEY-ROTATE| Net[embassy-net socket]
+  Net -->|KEY-STATE lines| Link
+  Link -->|0/1 bitmap| KeyA[Key A: ST7735, blocking SPI]
+  Link -->|0/2 bitmap| KeyB[Key B: ST7735, shared SPI, DC, RST]
+  Link -->|0/3 bitmap to 1-bit page buffer| Oled[OLED: SH1106 on async I2C]
+  Link -->|status when not registered| KeyA & KeyB & Oled
+  Inputs -.BACK and CONFIRM: log only.-> Log[Serial log]
+```
+
+The status state machine from High-Level Technical Design (P2) is unchanged. In P3 it drives all three displays instead of one.
+
+### Wiring (P3)
+
+Planned additions to Wiring (P2). They become fixed when U13 and U14 confirm them on the bench, and `docs/notes/deck-wiring.md` records the result.
+
+| Signal | Feather ESP32 V2 | Notes |
+|---|---|---|
+| Key B CS | GPIO26 (A0) | One CS per key |
+| Key B KEY | GPIO25 (A1) | Internal pull-up |
+| Key B SCLK, DIN, DC, RST, PWM | GPIO5, 19, 27, 15, 14 | Shared with key A (KTD21) |
+| OLED VCC / GND | 3V / GND | 3.3 V keeps the module's pull-ups at ESP32 levels |
+| OLED SDA / SCL | GPIO22 / GPIO20 | I²C0; module has 10 kΩ pull-ups |
+| Encoder TRA / TRB | GPIO34 (A2) / GPIO4 (A5) | PCNT; not GPIO36/39 (KTD25) |
+| Encoder PSH | GPIO36 (A4) | Module pull-up, active low |
+| BAK | GPIO39 (A3) | Module pull-up, active low |
+| CON | GPIO37 | Module pull-up, active low |
+
+### Assumptions (P3)
+
+- The OLED's disconnected screens repeat the keys' status text in a smaller font. The brainstorm proposed that, and nobody objected.
+- I²C at 400 kHz works with the module's 10 kΩ pull-ups over short bench wires. If U14 sees errors, 100 kHz is the fallback; it makes an OLED frame about 4× slower, still async.
+- The EC11 gives 4 quadrature counts per detent (20 pulses, 20 detents). U14 confirms it.
+- With the 72 KB line buffer already covering the 32 KB encoder line, P3 adds only a 1 KB framebuffer and fits in internal RAM without PSRAM. U15 logs the free heap after registration.
+- The P0 Companion container is still the latest stable release, or its tag is moved before the U15 runs.
+
+### Deferred to Follow-Up Work (P3)
+
+- The local device menu with Wi-Fi and brightness settings: THI-80.
+- Honouring Companion's `BRIGHTNESS`: THI-81.
+- Compressed key bitmaps: THI-76.
+- Implementation planning for P4.
+
+### Considered and Not Built (P3)
+
+- **Dithering the OLED image:** P0 found Companion's text legible after a plain threshold, and dithering speckles text on a 128×64 panel. Revisit if icon-heavy OLED buttons look bad on the bench.
+- **Requesting `TEXT` for the OLED:** it would need a local font renderer and lose Companion's layout (P0 notes, OLED).
+- **Async or DMA SPI for the keys:** KTD15's blocking draw stays. U15's round-trip numbers show whether two keys make it noticeable, and P4 measures redraw at scale.
+- **Supporting a Companion without `NONSQUARE`:** the PoC tests only the latest Companion (Dependencies / Assumptions); KTD20 refuses older ones.
+- **PSRAM heap:** still not needed (Assumptions (P3)).
+
+### Risks & Dependencies (P3)
+
+- **Blocking key draws delay everything else in the link task.** Two keys can block for about 50 ms in a row. PCNT keeps rotation exact, but press sampling and OLED writes wait. U15's measurement decides whether async SPI is needed.
+- **The encoder's RC filter (10 kΩ, 100 nF) makes slow edges.** A slow edge can chatter at the input threshold. Quadrature counting cancels chatter on one phase, and the PCNT glitch filter removes short pulses. U14's 20-detent test checks that no extra steps appear.
+- **PCNT and async I²C are behind esp-hal's `unstable` feature,** which the firmware already enables (KTD9). A breaking change would come with a deliberate esp-hal upgrade.
+- **The SH1106 column offset varies by panel.** U14 calibrates it with a border test pattern before anything relies on it.
+
+### Deferred to Implementation (P3)
+
+- The final pins, OLED column offset, I²C clock, counts per detent and rotation direction, all from the U13 and U14 bench runs.
+- How the status screens are laid out on 128×64.
+- The exact log line format for round-trip samples and summaries.
 
 ---
 
@@ -721,6 +833,125 @@ These pin assignments are planned and become fixed when U8 confirms them on the 
   6. **Offline presses (KTD18):** presses while disconnected trigger nothing in Companion after reconnecting.
   7. **Notes:** the P0 notes record the per-image receive and draw times and the free heap after registration.
 
+### U11. deck-core: three-control session
+
+- **Goal:** The session registers two keys and the encoder control, gates on `NONSQUARE`, routes each `KEY-STATE` to its control, and sends presses and rotations with the right control IDs (KTD20, KTD23, KTD24).
+- **Requirements:** R2, R6, R8, R17. Covers AE5 at protocol level.
+- **Dependencies:** none (builds on U6)
+- **Files:** `crates/deck-core/src/session.rs` (code and tests)
+- **Approach:**
+  1. Replace the single `KEY_CONTROL` with a control enum (key A, key B, encoder) that maps to and from `0/1`, `0/2` and `0/3`.
+  2. Rebuild the manifest per KTD20.
+  3. At `CAPS`, check for `NONSQUARE=1`. Without it, return a rejection with a reason that names the missing capability, and send nothing.
+  4. `KEY-STATE` returns a draw event that carries the control. `KEYS-CLEAR` keeps meaning "blank everything".
+  5. Generalise the key method to take a control. Add a rotate method that writes `KEY-ROTATE` with `DIRECTION=1` or `-1` for the encoder control, only while registered.
+- **Patterns to follow:** the existing `Session` methods and the harness in its tests.
+- **Test scenarios:**
+  - The manifest has a `default` preset of 128×128, an `encoder` preset of 128×64 with no `text` key, and exactly three controls at `0/1`, `0/2` and `0/3` in row 0.
+  - `CAPS NONSQUARE=1` sends exactly one `ADD-DEVICE`.
+  - `CAPS` without `NONSQUARE` sends nothing and returns a rejection naming `NONSQUARE`. After `closed`, the backoff applies.
+  - `KEY-STATE` for `0/1`, `0/2` and `0/3` each returns a draw for key A, key B and the encoder respectively, with the bitmap text.
+  - `KEY-STATE` for `0/4` is ignored.
+  - A key B press writes `KEY-PRESS … CONTROLID="0/2" PRESSED=1`, and an encoder push writes `CONTROLID="0/3"`.
+  - Covers AE5. Rotate +1 writes `KEY-ROTATE DEVICEID="opendeck-a0b7650102ff" CONTROLID="0/3" DIRECTION=1`, and rotate −1 writes `DIRECTION=-1`. Five rotate calls write five lines.
+  - Rotations and presses while disconnected or in handshake write nothing.
+  - `KEYS-CLEAR` returns the blank-all event.
+  - The P2 tests that assumed one control are updated to the new layout, not deleted.
+- **Verification:** `cargo test` passes at the repo root, and clippy is clean (Verification Contract).
+
+### U12. deck-core: OLED page buffer, detent counting and round-trip stats
+
+- **Goal:** The pure logic behind the OLED image, the encoder detents and the responsiveness measurement, all tested on the host (KTD22, KTD23, KTD27).
+- **Requirements:** R8, Success Criteria (P3 measurement)
+- **Dependencies:** none
+- **Files:** `crates/deck-core/src/mono.rs`, `crates/deck-core/src/encoder.rs`, `crates/deck-core/src/latency.rs`, `crates/deck-core/src/bitmap.rs` (reuse its validation and decode), `crates/deck-core/src/lib.rs`, with unit tests in each module
+- **Approach:**
+  1. `mono`: a 128×64 page-major 1-bit buffer (byte = 8 vertical pixels, page = 8 rows) with set/clear pixel. A function fills it from a base64 `rgb` bitmap by thresholding integer BT.601 luma at 128. It validates the whole bitmap first, like `bitmap.rs`, so a bad image leaves the buffer untouched.
+  2. `encoder`: an accumulator that takes successive counter readings and returns whole detents. It takes deltas modulo the configured counter limit (KTD23), keeps the remainder, and takes the counts per detent and the limit as constructor parameters (4 and 4,000 until U14 confirms them).
+  3. `latency`: a tracker that records the send time per control and turns the next draw of that control within 2 s into a sample. A ring of the last 64 samples reports the median and the maximum, and says when 20 new samples have arrived.
+- **Execution note:** Implement test-first; these are pure functions.
+- **Test scenarios:**
+  - An all-white 128×64 bitmap fills every byte with `0xFF`, and an all-black one with `0x00`.
+  - Only pixel (0, 0) white sets bit 0 of byte 0. Pixel (5, 9) sets bit 1 of byte 128 + 5 (page 1, column 5).
+  - Grey luma 127 stays dark, and 128 lights.
+  - Pure red (luma about 76) stays dark, matching the P0 caveat.
+  - A bitmap of the wrong length returns the length error, and invalid base64 returns the base64 error. In both cases the buffer keeps its previous contents.
+  - Readings 0 → 4 give +1 detent. 0 → 3 gives 0, then → 4 gives +1. 0 → −8 gives −2. With a limit of 4,000: 3,999 → 0 (the counter reset at +4,000) gives +1 count, and −3,999 → 0 gives −1 count. 0 → 2 → 0 gives 0.
+  - With 2 counts per detent configured, 0 → 4 gives +2.
+  - A send for key A at 100 ms and a draw for key A at 160 ms gives a 60 ms sample.
+  - Sends for the encoder at 100, 120 and 140 ms and a draw at 200 ms give one 100 ms sample, timed from the first send.
+  - A draw for key B while only key A is pending gives no sample.
+  - A draw with nothing pending gives no sample.
+  - A pending send older than 2 s at draw time gives no sample and clears it.
+  - Samples 10, 20, 30, 40 report a median of 25 (mean of the middle two) and a maximum of 40. After 70 samples, only the last 64 count.
+- **Verification:** `cargo test` passes, and the new modules carry no esp or embassy dependency (KTD10).
+
+### U13. Second key and button inputs
+
+- **Goal:** Two calibrated keys draw independently on one bus, and all five buttons produce debounced, named edges in the log (KTD21, KTD24, KTD25).
+- **Requirements:** R5, R6, R17. Covers AE6 at the input level.
+- **Dependencies:** U11
+- **Files:** `firmware/src/display.rs`, `firmware/src/inputs.rs` (replaces `firmware/src/key.rs`), `firmware/src/main.rs`, `docs/notes/deck-wiring.md`, `docs/notes/deck-wiring.svg`
+- **Approach:**
+  1. Share SPI2 and DC between two `KeyDisplay`s, and give RST to the first only (KTD21). Draw the calibration pattern on both at boot.
+  2. Generalise the key task into the inputs task (KTD24). It sends `(button, pressed)` edges on one channel. BACK and CONFIRM edges are logged with their names.
+  3. Wire key B and the three module buttons per Wiring (P3). The encoder phases and I²C come in U14.
+  4. Update the wiring note's table and diagram for the new pins in the same commit, as the note requires.
+- **Execution note:** Bring up key B on the bench before touching the link; P2's calibration values should apply unchanged to the second panel.
+- **Test expectation:** none for this unit itself. Its logic (debounce, session routing) is tested in U7 and U11, and its checks are bench observations.
+- **Verification:**
+  - Both keys show the full test-pattern border with correct corner colours, so P2's offset, colour order and inversion apply to key B.
+  - 20 presses on each of key A, key B, the encoder push, BACK and CONFIRM log exactly 20 named presses and 20 releases each.
+  - The board boots normally with everything wired.
+  - `docs/notes/deck-wiring.md` and its diagram show the P3 pins.
+
+### U14. OLED and encoder bring-up, and the module notes
+
+- **Goal:** The OLED shows a calibrated test pattern and the status screens, the encoder logs exact signed detents, and the module is documented (KTD22, KTD23, KTD25, KTD26).
+- **Requirements:** R7, R8, R17
+- **Dependencies:** U12, U13
+- **Files:** `firmware/src/oled.rs`, `firmware/src/encoder.rs`, `firmware/src/main.rs`, `docs/notes/oled-encoder-module.md`, `docs/notes/deck-wiring.md`
+- **Approach:**
+  1. `oled.rs`: async I²C0 at 400 kHz. Send the SH1106 init sequence, then write the eight pages from the U12 buffer. Implement embedded-graphics' `DrawTarget` over that buffer for the test pattern and status screens. Errors are logged and never panic (KTD26).
+  2. Calibrate the column offset with a 1 px border pattern. Confirm 400 kHz, or fall back to 100 kHz.
+  3. `encoder.rs`: one PCNT unit with two channels in the quadrature configuration that esp-hal's PCNT module docs show, and the glitch filter on. A 5 ms task reads the count through the U12 accumulator, adds detents to a shared pending counter, and signals the link (KTD23). Until U15 wires the link, it logs the running detent total.
+  4. Confirm the counts per detent and the clockwise sign, and fix them as constants.
+  5. Write `docs/notes/oled-encoder-module.md`: the module's identity and source, the schematic facts from the plan's Dependencies / Assumptions, the bench-confirmed controller, address, offset, I²C clock, counts per detent and direction, and the pin assignment. Link it from `docs/notes/deck-wiring.md`.
+- **Patterns to follow:** `firmware/src/display.rs` for test pattern and status screens. The esp-hal 1.2.2 PCNT module docs (`esp_hal::pcnt`) for the quadrature setup.
+- **Execution note:** Calibrate the offset and the counts per detent before any later unit relies on them.
+- **Test expectation:** none for this unit itself. The conversion and detent logic are tested in U12, and its checks are bench observations.
+- **Verification:**
+  - The OLED's border pattern is visible on all four edges.
+  - "No Wi-Fi", "No host" and "Connecting" are legible on the OLED.
+  - One full turn clockwise logs exactly +20 detents, and one anticlockwise logs −20, three times in a row at slow and at fast speed.
+  - Booting with the module unplugged logs the OLED error, and the keys still work.
+  - `docs/notes/oled-encoder-module.md` exists and records every calibrated value.
+
+### U15. Link integration, end-to-end runs and the latency measurement
+
+- **Goal:** The deck works as one three-control Companion surface, and P3's measured behaviour is recorded (KTD20, KTD23, KTD24, KTD26, KTD27).
+- **Requirements:** R2, R5, R6, R7, R8, R17, Success Criteria. Covers F1, F2, F3, AE1, AE5 and AE6.
+- **Dependencies:** U11, U12, U13, U14
+- **Files:** `firmware/src/link.rs`, `firmware/src/main.rs`, `firmware/README.md`, `docs/notes/satellite-protocol-firmware-notes.md`
+- **Approach:**
+  1. Route draw events to key A, key B or the OLED, status changes to all three, and `KEYS-CLEAR` to all three. Lines are handled inside the framer's synchronous callback, where the bitmap text lives, but the OLED write is async (KTD22). So an OLED draw converts into the U12 buffer inside the callback, marks it dirty, and flushes after the callback returns. That flush is the draw completion KTD27 times.
+  2. The serve loop also waits on input edges and the encoder signal. While registered, pending detents become one `KEY-ROTATE` each; otherwise they are dropped.
+  3. Feed sends and completed draws into the U12 tracker. Log each sample, and a summary every 20 samples (KTD27).
+  4. Run the end-to-end checklist below against the P0 Companion container. Use page 1 with text buttons on `1/0/1`, `1/0/2` and `1/0/3`. Each must change its own text on press, and the encoder button must also change it on rotate (for example, a counter).
+  5. Add an "On hardware (P3)" section to the P0 notes: the round-trip median and maximum for keys and for the encoder, the free heap after registration, and anything that behaved differently from P2.
+- **Execution note:** Each checklist item cites a log excerpt and the Companion version, as in U10. The operator runs the checklist; an agent records only results the operator reported.
+- **Test expectation:** none beyond U11 and U12, because this unit is integration on hardware. Its checks are the checklist in Verification.
+- **Verification:**
+  1. **First connect (F1, R2):** the surface appears in Companion with two 128×128 keys and one 128×64 encoder control in one row, and each shows its button's image.
+  2. **Image updates (R5, R8):** editing each button in Companion updates the matching display. The OLED shows white-on-black text legibly.
+  3. **Presses (F2, R6):** key A, key B and the encoder push each run their press and release actions.
+  4. **Rotation (F3, AE5):** five detents right then two left run exactly five rotate-right and two rotate-left actions. The OLED shows the final count.
+  5. **BACK and CONFIRM (AE6):** pressing each logs it, Companion receives nothing, and the OLED keeps Companion's image.
+  6. **Recovery (AE1, R7):** stopping Companion shows "Connecting" on all three displays within 5 s, and restarting restores all three images without operator action.
+  7. **Offline input (KTD18, KTD23):** presses and rotations while disconnected trigger nothing after reconnecting.
+  8. **Responsiveness (Success Criteria):** at least 40 key-press samples and 40 rotation samples are logged in a normal bench session. The notes record median and maximum for each, and say whether the median meets about 100 ms.
+  9. **Daily use:** the operator uses the deck for dev work for a while and notes any lag in the P0 notes.
+
 ---
 
 ## Verification Contract
@@ -739,6 +970,11 @@ These pin assignments are planned and become fixed when U8 confirms them on the 
 | Firmware lint (P2) | `mise exec -- cargo clippy --release -- -D warnings` in `firmware/`, which keeps the template's `large_stack_frames` deny | U5, U8, U9, U10 |
 | Bench (P2) | U8's test pattern, status screens and 20-press check pass, and `docs/notes/deck-wiring.md` records every calibrated value | U8 |
 | End-to-end (P2) | The U10 checklist passes against the latest stable Companion, and each item cites a log excerpt | U10 |
+| Core tests (P3) | `mise exec -- cargo test` at the repo root runs the `deck-core` tests, including the U11 and U12 scenarios | U11, U12 |
+| Core lint (P3) | `mise exec -- cargo clippy --all-targets -- -D warnings` and `mise exec -- cargo fmt --check` at the repo root | U11, U12 |
+| Firmware build and lint (P3) | `mise exec -- cargo build --release` and `mise exec -- cargo clippy --release -- -D warnings` in `firmware/`, as in CI | U13, U14, U15 |
+| Bench (P3) | U13's and U14's Verification lists pass on the operator's bench, and the wiring and module notes record every calibrated value | U13, U14 |
+| End-to-end (P3) | The U15 checklist passes against the latest stable Companion, each item cites a log excerpt, and the notes record the round-trip numbers | U15 |
 
 ---
 
@@ -757,3 +993,11 @@ These pin assignments are planned and become fixed when U8 confirms them on the 
 - The three P1 bench checks (KEY polarity, pull-up, panel offset) are answered in `docs/notes/deck-wiring.md`.
 - `firmware/wifi.env` and build output are gitignored, and no credentials are committed.
 - No test-pattern-only code, debug shortcuts or abandoned driver experiments remain in `firmware/`, apart from what the README documents as calibration tools.
+
+**P3**
+
+- On the bench, both keys and the encoder/OLED control work as one Companion surface. Rotations arrive exactly, BACK and CONFIRM stay local, and all three displays show the link status while Companion is unreachable.
+- U11–U15 each meet their Verification. Bench and end-to-end items are marked done only from the operator's runs.
+- `docs/notes/oled-encoder-module.md` documents the module, and `docs/notes/deck-wiring.md` shows every P3 pin.
+- The P0 notes record P3's round-trip median and maximum for keys and the encoder.
+- `firmware/src/key.rs` is gone (replaced by `inputs.rs`), and no test-pattern-only code or abandoned driver experiments remain beyond the documented calibration patterns.

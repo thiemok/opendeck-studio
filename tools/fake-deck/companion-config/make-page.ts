@@ -3,14 +3,15 @@ import { CONTROL_IDS } from '../src/protocol.ts'
 const v = <T>(value: T, isExpression = false) => ({ value, isExpression })
 
 let actionCount = 0
-const setCount = (expression: string) => ({
-	id: `set-count-${++actionCount}`,
+const setVariable = (name: string, expression: string) => ({
+	id: `set-${name}-${++actionCount}`,
 	definitionId: 'custom_variable_set_value',
 	connectionId: 'internal',
 	type: 'action',
 	children: {},
-	options: { name: v('count'), create: v(false), value: v(expression, true) },
+	options: { name: v(name), create: v(false), value: v(expression, true) },
 })
+const setCount = (expression: string) => setVariable('count', expression)
 
 const button = (text: string, bg: number, actionSets: Record<string, unknown[]>, rotaryActions = false) => ({
 	type: 'button-layered',
@@ -68,17 +69,32 @@ const button = (text: string, bg: number, actionSets: Record<string, unknown[]>,
 	localVariables: [],
 })
 
-// Companion page exports key controls by row, then column; place each at the fake deck's own control ID.
+// `--hardware` lays the page out for the firmware deck instead, which leaves column 0 to
+// Companion's page buttons (KTD12, KTD20 in the PoC plan).
+// The keys there count their own presses in `presses`, so a turn redraws only the OLED
+// and a press redraws only the keys: each input changes as few images as real use does.
+const HARDWARE_IDS = { key0: '0/1', key1: '0/2', encoder: '0/3' }
+const hardware = process.argv.includes('--hardware')
+const ids = hardware ? HARDWARE_IDS : CONTROL_IDS
+const keyVar = hardware ? 'presses' : 'count'
+
+// Companion page exports key controls by row, then column; place each at the deck's own control ID.
 const controls: Record<string, Record<string, unknown>> = {}
 const place = (controlId: string, control: unknown) => {
 	const [row, column] = controlId.split('/')
 	controls[row] ??= {}
 	controls[row][column] = control
 }
-place(CONTROL_IDS.key0, button('A\n$(custom:count)', 0xcc0000, { down: [setCount('$(custom:count) + 1')] }))
-place(CONTROL_IDS.key1, button('B\n$(custom:count)', 0x0044cc, { down: [setCount('$(custom:count) - 1')] }))
 place(
-	CONTROL_IDS.encoder,
+	ids.key0,
+	button(`A\n$(custom:${keyVar})`, 0xcc0000, { down: [setVariable(keyVar, `$(custom:${keyVar}) + 1`)] })
+)
+place(
+	ids.key1,
+	button(`B\n$(custom:${keyVar})`, 0x0044cc, { down: [setVariable(keyVar, `$(custom:${keyVar}) - 1`)] })
+)
+place(
+	ids.encoder,
 	button(
 		'Vol $(custom:count)',
 		0x000000,

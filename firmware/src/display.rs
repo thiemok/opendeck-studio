@@ -1,5 +1,8 @@
-//! The ScreenKey's ST7735 panel: test pattern, status screens and Companion bitmaps (KTD15, KTD17).
+//! The ScreenKeys' ST7735 panels on one shared SPI bus: test pattern, status screens and
+//! Companion bitmaps (KTD15, KTD17, KTD21).
 
+use core::cell::RefCell;
+use core::convert::Infallible;
 use deck_core::bitmap::{self, BitmapError};
 use deck_core::session::KEY_SIZE;
 use embedded_graphics::mono_font::ascii::{FONT_6X10, FONT_9X15_BOLD};
@@ -9,11 +12,13 @@ use embedded_graphics::pixelcolor::raw::RawU16;
 use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::{PrimitiveStyle, Rectangle};
 use embedded_graphics::text::{Alignment, Text};
-use embedded_hal_bus::spi::ExclusiveDevice;
+use embedded_hal::digital::{ErrorType, OutputPin};
+use embedded_hal_bus::spi::RefCellDevice;
 use esp_hal::Blocking;
 use esp_hal::delay::Delay;
 use esp_hal::gpio::Output;
 use esp_hal::spi::master::Spi;
+use mipidsi::NoResetPin;
 use mipidsi::interface::SpiInterface;
 use mipidsi::models::ST7735s;
 use mipidsi::options::{ColorInversion, ColorOrder};
@@ -28,14 +33,14 @@ pub mod calibration {
     pub const INVERSION: ColorInversion = ColorInversion::Inverted;
 }
 
-type SpiDevice = ExclusiveDevice<Spi<'static, Blocking>, Output<'static>, Delay>;
-type Panel =
-    mipidsi::Display<SpiInterface<'static, SpiDevice, Output<'static>>, ST7735s, Output<'static>>;
+pub type SpiBus = Spi<'static, Blocking>;
+type SpiDevice = RefCellDevice<'static, SpiBus, Output<'static>, Delay>;
+type Panel = mipidsi::Display<SpiInterface<'static, SpiDevice, SharedPin>, ST7735s, NoResetPin>;
 
 /// How many `FONT_6X10` characters fit across the 128 px key.
 const HOST_CHARS_PER_LINE: usize = 21;
 
-/// What the key shows while it is not registered with Companion (KTD17).
+/// What the displays show while the deck is not registered with Companion (KTD17, KTD26).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status<'a> {
     NoWifi,
@@ -43,20 +48,55 @@ pub enum Status<'a> {
     Connecting { host: &'a str },
 }
 
+/// An output pin shared by both panels' interfaces: the DC line (KTD21). Only the link task
+/// draws, so the `RefCell` is never contended.
+pub struct SharedPin(&'static RefCell<Output<'static>>);
+
+impl SharedPin {
+    pub fn new(pin: &'static RefCell<Output<'static>>) -> Self {
+        Self(pin)
+    }
+}
+
+impl ErrorType for SharedPin {
+    type Error = Infallible;
+}
+
+impl OutputPin for SharedPin {
+    fn set_low(&mut self) -> Result<(), Infallible> {
+        self.0.borrow_mut().set_low();
+        Ok(())
+    }
+
+    fn set_high(&mut self) -> Result<(), Infallible> {
+        self.0.borrow_mut().set_high();
+        Ok(())
+    }
+}
+
+/// Pulses the shared RST line so every panel starts from a hardware reset; it then stays
+/// high. Each panel's init follows with a software reset (KTD21).
+pub fn reset_panels(rst: &mut Output<'static>) {
+    let delay = Delay::new();
+    rst.set_low();
+    delay.delay_micros(20);
+    rst.set_high();
+    delay.delay_millis(120);
+}
+
 pub struct KeyDisplay {
     panel: Panel,
 }
 
 impl KeyDisplay {
-    /// Initialises the panel; `buffer` batches pixel bytes per SPI transfer.
+    /// Initialises one panel on the shared bus; `buffer` batches pixel bytes per SPI transfer.
     pub fn new(
-        spi: Spi<'static, Blocking>,
+        bus: &'static RefCell<SpiBus>,
         cs: Output<'static>,
-        dc: Output<'static>,
-        rst: Output<'static>,
+        dc: SharedPin,
         buffer: &'static mut [u8],
     ) -> Self {
-        let device = match ExclusiveDevice::new(spi, cs, Delay::new()) {
+        let device = match RefCellDevice::new(bus, cs, Delay::new()) {
             Ok(device) => device,
             Err(never) => match never {},
         };
@@ -67,7 +107,6 @@ impl KeyDisplay {
             .display_offset(x, y)
             .color_order(calibration::COLOR_ORDER)
             .invert_colors(calibration::INVERSION)
-            .reset_pin(rst)
             .init(&mut Delay::new())
             .unwrap_or_else(|e| panic!("ST7735 init failed: {e:?}"));
         Self { panel }
@@ -76,7 +115,7 @@ impl KeyDisplay {
     /// The calibration pattern: a 1 px white border and red/green/blue/white corner blocks
     /// (top-left red, top-right green, bottom-left blue, bottom-right white). If a border edge
     /// is missing, the offset is wrong; if red shows blue, the colour order is.
-    pub fn test_pattern(&mut self) {
+    pub fn test_pattern(&mut self, label: &str) {
         self.fill(Rgb565::BLACK);
         let last = i32::from(KEY_SIZE) - 1;
         let _ = Rectangle::new(Point::zero(), Size::new_equal(u32::from(KEY_SIZE)))
@@ -92,7 +131,7 @@ impl KeyDisplay {
                 .into_styled(PrimitiveStyle::with_fill(color))
                 .draw(&mut self.panel);
         }
-        self.text_centered("TEST", 64, &FONT_9X15_BOLD);
+        self.text_centered(label, 64, &FONT_9X15_BOLD);
     }
 
     pub fn status(&mut self, status: Status<'_>) {

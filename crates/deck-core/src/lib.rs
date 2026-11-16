@@ -10,5 +10,8 @@ pub mod bitmap;
 pub mod config;
 pub mod console;
 pub mod debounce;
+pub mod encoder;
+pub mod latency;
 pub mod line;
+pub mod mono;
 pub mod session;
