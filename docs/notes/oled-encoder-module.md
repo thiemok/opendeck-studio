@@ -2,7 +2,7 @@
 
 What the 1.3" OLED + EC11 rotary encoder module is, how it is built, and the values the firmware uses for it. It is the deck's encoder control: Companion's 128×64 image on the OLED, encoder rotation and push reported to Companion, and two device buttons (BACK, CONFIRM) that stay local.
 
-> **Status:** identified from the vendor's interface description and schematics on 2026-11-16; the operator confirmed the listing matches the part on hand. The [calibration](#calibration) values are **not yet confirmed on the bench**; U14 in [the PoC plan](../plans/2026-11-13-1722-feat-companion-network-deck-poc-plan.md) does that and fills them in.
+> **Status:** identified from the vendor's interface description and schematics on 2026-11-16; the operator confirmed the listing matches the part on hand. Checked on the bench the same day (U14 in [the PoC plan](../plans/2026-11-13-1722-feat-companion-network-deck-poc-plan.md)); the [calibration](#calibration) table says what was confirmed and what is still open.
 
 ## Identity
 
@@ -48,13 +48,13 @@ The front silkscreen lists the pins in the reverse order (CON first, VCC last). 
 
 | Value | Firmware setting | Bench result |
 |---|---|---|
-| SH1106 answers at 0x3C | `ADDRESS` in `firmware/src/oled.rs` | Open (U14) |
-| Column offset (132-column RAM) | `calibration::COLUMN_OFFSET = 2` in `firmware/src/oled.rs` | Open (U14) |
-| Orientation (not mirrored) | segment remap `0xA1`, COM scan `0xC8` in `INIT` | Open (U14) |
-| I²C clock | `calibration::I2C_KHZ = 400`; 100 is the fallback | Open (U14) |
-| Counts per detent | `calibration::COUNTS_PER_DETENT = 4` in `firmware/src/encoder.rs` | Open (U14) |
-| Clockwise sign | `calibration::CLOCKWISE_SIGN = 1` | Open (U14) |
-| Buttons read low when pressed | `ACTIVE_LOW` in `firmware/src/inputs.rs` | Open (U13) |
+| SH1106 answers at 0x3C | `ADDRESS` in `firmware/src/oled.rs` | Confirmed: `OLED ready at 0x3c` |
+| Column offset (132-column RAM) | `calibration::COLUMN_OFFSET = 2` in `firmware/src/oled.rs` | Correct: Companion's image showed whole and sharp |
+| Orientation (not mirrored) | segment remap `0xA1`, COM scan `0xC8` in `INIT` | Correct: text upright |
+| I²C clock | `calibration::I2C_KHZ = 400`; 100 is the fallback | Works: no write errors over two bench runs; a frame takes 7 ms end to end |
+| Counts per detent | `calibration::COUNTS_PER_DETENT = 4` in `firmware/src/encoder.rs` | Correct: a full turn gives 20–21 detents, slow or fast |
+| Clockwise sign | `calibration::CLOCKWISE_SIGN = -1` | Was reversed with 1 (count fell clockwise); set to −1 |
+| Buttons read low when pressed | `ACTIVE_LOW` in `firmware/src/inputs.rs` | Confirmed: each press and release logged once |
 
 ## How to calibrate
 
