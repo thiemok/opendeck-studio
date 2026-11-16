@@ -185,7 +185,7 @@ Measured on 2026-11-16 with the P3 firmware: both ScreenKeys and the 1.3" OLED/E
 | Round trip, keys (19 samples) | median 216 ms, max 516 ms |
 | 128×128 key image | received in a median 192 ms (max 250), the same as run 1 |
 | 128×64 OLED image | received in a median 99 ms |
-| Free heap | 111,056 B at boot, 65,432 B after registration (36 KB DRAM heap region cut to 12 KB for the 32 KB socket buffer) |
+| Free heap | 111,056 B at boot, 65,432 B after registration with the 32 KB socket buffer (it took 24 KB from the DRAM heap region) |
 | Encoder, one slow full turn each way | 20 and 21 detents (the knob was turned a little past a full turn) |
 | Encoder, one fast full spin each way | 21 and 21 detents, so none lost at speed |
 | BACK and CONFIRM | logged on every press, nothing sent to Companion |
@@ -193,7 +193,7 @@ Measured on 2026-11-16 with the P3 firmware: both ScreenKeys and the 1.3" OLED/E
 **Findings:**
 
 - **The bar of about 100 ms is missed** (P3 Success Criteria): median 165 ms for the encoder and 216 ms for keys. The operator found the encoder much faster in run 2 and the keys still a bit slow, and agreed to optimise later.
-- **Transfer, not drawing, sets the time.** A key image needs about 190 ms on the wire and 26 ms to draw. The larger TCP window did not change the receive time, and Wi-Fi power saving is already off (esp-radio's default), so the limit is below the socket. Compressed images (THI-76, about 10× less data) are the likely fix.
+- **Transfer, not drawing, sets the time.** A key image needs about 190 ms on the wire and 26 ms to draw. The larger TCP window did not change the receive time, and Wi-Fi power saving is already off (esp-radio's default), so the limit is below the socket. Compressed images (THI-76, about 10× less data) are the likely fix. The buffer went back to 8 KB afterwards to keep the 24 KB of heap, so free heap after registration is about 90 KB again.
 - **What a button shows decides the cost.** Each image Companion changes is sent whole, so a press that changes several buttons pays for each. Run 1's shared `count` tripled the wait.
 - **Encoder direction was reversed:** the counter fell when turning clockwise, so `CLOCKWISE_SIGN` is now −1.
 - **Not run yet:** Companion stop/start recovery with three displays, the OLED's status screens, booting with the module unplugged, and input while disconnected. P2 covered recovery for one key.
