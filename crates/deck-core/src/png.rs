@@ -663,6 +663,13 @@ mod tests {
     }
 
     #[test]
+    fn the_workspace_stays_within_its_45_kb_budget() {
+        // KTD3/KTD4 of the THI-76 plan: the window, the inflate state and three scanlines.
+        let size = core::mem::size_of::<PngWorkspace>();
+        assert!(size > WINDOW_SIZE && size <= 45 * 1024, "{size} B");
+    }
+
+    #[test]
     fn the_wrong_size_is_rejected_before_any_row() {
         let url = data_url(&png(4, 3, 2, &[&zlib(&filtered(&sample_rgb(), 4, 3, 0))]));
         assert_eq!(

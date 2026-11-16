@@ -6,10 +6,10 @@
 //! lives, and do the slow I²C write after it returns. A missing or failing panel is logged
 //! and never stops the deck.
 
-use crate::display::Status;
+use crate::display::{DrawError, Status, is_png};
 use core::convert::Infallible;
-use deck_core::bitmap::BitmapError;
 use deck_core::mono::{MonoFrame, PAGES};
+use deck_core::png::PngWorkspace;
 use deck_core::session::{OLED_HEIGHT, OLED_WIDTH};
 use embedded_graphics::mono_font::ascii::{FONT_6X10, FONT_9X15_BOLD};
 use embedded_graphics::mono_font::{MonoFont, MonoTextStyle};
@@ -107,11 +107,27 @@ impl Oled {
         Ok(())
     }
 
-    /// Takes a Companion `rgb` bitmap. A bad bitmap is reported and the frame keeps its image.
-    pub fn bitmap(&mut self, b64: &str) -> Result<(), BitmapError> {
-        self.frame.fill_from_rgb(b64)?;
-        self.dirty = true;
-        Ok(())
+    /// Takes a Companion bitmap, `rgb` or `png`. A bad `rgb` bitmap is reported and the
+    /// frame keeps its image; a `png` fault leaves the rows before it changed.
+    pub fn bitmap(&mut self, bitmap: &str, ws: Option<&mut PngWorkspace>) -> Result<(), DrawError> {
+        if is_png(bitmap) {
+            let ws = ws.ok_or(DrawError::NoPngWorkspace)?;
+            self.dirty = true;
+            self.frame.fill_from_png(bitmap, ws).map_err(DrawError::Png)
+        } else {
+            self.frame.fill_from_rgb(bitmap).map_err(DrawError::Rgb)?;
+            self.dirty = true;
+            Ok(())
+        }
+    }
+
+    /// While a bench surface is registered the encoder isn't, so the OLED names the bench
+    /// (THI-76), e.g. "32 keys png" and "decode only".
+    pub fn bench(&mut self, surface: &str, mode: &str) {
+        self.blank();
+        self.text_centered("BENCH", 20, &FONT_9X15_BOLD);
+        self.text_centered(surface, 40, &FONT_6X10);
+        self.text_centered(mode, 54, &FONT_6X10);
     }
 
     pub fn blank(&mut self) {

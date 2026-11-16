@@ -4,9 +4,10 @@
 //! ROM routine at the same 115200 baud, so log output and replies share the port.
 
 use crate::config_store::ConfigStore;
-use crate::{HOST, set_host};
+use crate::{HOST, SURFACE, set_host, set_surface};
 use deck_core::config::HostConfig;
 use deck_core::console::{self, Command, ConsoleError};
+use deck_core::session::{Layout, SurfaceConfig};
 use embassy_time::{Duration, Timer};
 use esp_hal::Async;
 use esp_hal::uart::UartRx;
@@ -75,12 +76,52 @@ fn run(text: &str, store: &mut ConfigStore) {
             }
             Err(e) => println!("could not clear the host: {e:?}"),
         },
-        Ok(Command::Show) => match HOST.lock(|h| h.get()) {
-            Some(config) => println!("host {}:{}", config.host(), config.port),
-            None => println!("no host set"),
-        },
+        Ok(Command::Bench { layout, draw }) => {
+            let surface = SURFACE.lock(|s| s.get());
+            set_surface(SurfaceConfig {
+                layout,
+                draw,
+                ..surface
+            });
+            println!(
+                "surface: {}; re-registering",
+                describe(SURFACE.lock(|s| s.get()))
+            );
+        }
+        Ok(Command::Image(format)) => {
+            let surface = SURFACE.lock(|s| s.get());
+            set_surface(SurfaceConfig { format, ..surface });
+            println!(
+                "surface: {}; re-registering",
+                describe(SURFACE.lock(|s| s.get()))
+            );
+        }
+        Ok(Command::Show) => {
+            match HOST.lock(|h| h.get()) {
+                Some(config) => println!("host {}:{}", config.host(), config.port),
+                None => println!("no host set"),
+            }
+            println!("surface: {}", describe(SURFACE.lock(|s| s.get())));
+        }
         Ok(Command::Help) => println!("{}", console::HELP),
         Err(ConsoleError::Empty) => {}
         Err(e) => println!("{}", e.reason()),
+    }
+}
+
+/// The surface in console words, e.g. `bench 32 draw, png images`.
+pub fn describe(surface: SurfaceConfig) -> &'static str {
+    use deck_core::session::ImageFormat::{Png, Rgb};
+    match (surface.layout, surface.draw, surface.format) {
+        (Layout::Normal, _, Rgb) => "normal, rgb images",
+        (Layout::Normal, _, Png) => "normal, png images",
+        (Layout::Bench16, false, Rgb) => "bench 16, rgb images",
+        (Layout::Bench16, false, Png) => "bench 16, png images",
+        (Layout::Bench16, true, Rgb) => "bench 16 draw, rgb images",
+        (Layout::Bench16, true, Png) => "bench 16 draw, png images",
+        (Layout::Bench32, false, Rgb) => "bench 32, rgb images",
+        (Layout::Bench32, false, Png) => "bench 32, png images",
+        (Layout::Bench32, true, Rgb) => "bench 32 draw, rgb images",
+        (Layout::Bench32, true, Png) => "bench 32 draw, png images",
     }
 }

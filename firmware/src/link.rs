@@ -4,15 +4,18 @@
 //! `deck_core::session::Session` decides; this task owns the socket, the clock and the
 //! displays.
 
-use crate::display::{KeyDisplay, Status};
+use crate::console::describe;
+use crate::display::{DrawError, KeyDisplay, Status, decode_only};
 use crate::inputs;
 use crate::oled::Oled;
-use crate::{HOST, HOST_CHANGED, encoder};
-use deck_core::bitmap::BitmapError;
+use crate::{HOST, HOST_CHANGED, SURFACE, encoder};
+use alloc::boxed::Box;
 use deck_core::config::HostConfig;
 use deck_core::latency::{RoundTrips, WINDOW};
 use deck_core::line::{Frame, LineFramer, LineWriter, Message};
-use deck_core::session::{Control, Event, SILENCE_TIMEOUT_MS, Session};
+use deck_core::pagetime::{Drawn, PageChange, PageTimer};
+use deck_core::png::PngWorkspace;
+use deck_core::session::{Control, Event, ImageFormat, Layout, SILENCE_TIMEOUT_MS, Session};
 use embassy_futures::select::{Either, Either4, select, select4};
 use embassy_net::Stack;
 use embassy_net::dns::DnsQueryType;
@@ -60,11 +63,24 @@ impl Displays {
     }
 
     /// Draws a Companion bitmap. The OLED's frame changes here; [`Self::flush_oled`] sends it.
-    fn bitmap(&mut self, control: Control, b64: &str) -> Result<(), BitmapError> {
+    ///
+    /// Bench keys `0/0` and `0/1` are the physical keys. The others are only decoded, unless
+    /// `draw` sends them to panel A (even) or B (odd) as well, adding the SPI time a real
+    /// deck would spend (THI-76).
+    fn bitmap(
+        &mut self,
+        control: Control,
+        bitmap: &str,
+        png: Option<&mut PngWorkspace>,
+        draw: bool,
+    ) -> Result<(), DrawError> {
         match control {
-            Control::KeyA => self.key_a.bitmap(b64),
-            Control::KeyB => self.key_b.bitmap(b64),
-            Control::Encoder => self.oled.bitmap(b64),
+            Control::KeyA | Control::Bench(0) => self.key_a.bitmap(bitmap, png),
+            Control::KeyB | Control::Bench(1) => self.key_b.bitmap(bitmap, png),
+            Control::Encoder => self.oled.bitmap(bitmap, png),
+            Control::Bench(n) if draw && n % 2 == 0 => self.key_a.bitmap(bitmap, png),
+            Control::Bench(_) if draw => self.key_b.bitmap(bitmap, png),
+            Control::Bench(_) => decode_only(bitmap, png).map(|sum| debug!("checksum {sum:08x}")),
         }
     }
 
@@ -126,6 +142,7 @@ pub async fn run(
     let mut out = LineWriter::new(out);
     let mut sockets = SocketBuffers { rx, tx, chunk };
     let mut round_trips = RoundTrips::new();
+    let mut png: Option<Box<PngWorkspace>> = None;
     let mut shown: Option<Shown> = None;
 
     loop {
@@ -164,6 +181,7 @@ pub async fn run(
             &mut Link {
                 displays: &mut displays,
                 round_trips: &mut round_trips,
+                png: &mut png,
                 framer: &mut framer,
                 out: &mut out,
             },
@@ -186,6 +204,9 @@ pub async fn run(
 struct Link<'a, 'b, 'c> {
     displays: &'a mut Displays,
     round_trips: &'a mut RoundTrips,
+    /// The PNG decoder's memory, taken from the heap at the first `png` registration and kept
+    /// (KTD4 of the THI-76 plan).
+    png: &'a mut Option<Box<PngWorkspace>>,
     framer: &'a mut LineFramer<'b>,
     out: &'a mut LineWriter<'c>,
 }
@@ -235,6 +256,7 @@ async fn connect_and_serve(
         }
     }
     info!("connected to {}:{}", config.host(), config.port);
+    session.set_config(SURFACE.lock(|s| s.get()));
     session.connected(now_ms());
     link.framer.reset();
     link.out.clear();
@@ -257,9 +279,12 @@ async fn serve(
     let Link {
         displays,
         round_trips,
+        png,
         framer,
         out,
     } = link;
+    let surface = session.config();
+    let mut page_timer: Option<PageTimer> = None;
     let mut line_started = Instant::now();
     loop {
         let input = select4(
@@ -287,27 +312,73 @@ async fn serve(
                         debug!("<- {} ({} B)", msg.command, bytes.len());
                         match session.line(now_ms(), &msg, out) {
                             Event::Registered => {
+                                let format = session.image_format();
+                                if format == ImageFormat::Png && png.is_none() {
+                                    **png = alloc_png_workspace();
+                                }
                                 info!(
-                                    "registered with Companion; free heap {} B",
+                                    "registered with Companion as {} ({} images); free heap {} B",
+                                    describe(surface),
+                                    format.name(),
                                     esp_alloc::HEAP.free()
                                 );
+                                let keys = surface.layout.bench_keys();
+                                if keys > 0 {
+                                    page_timer = Some(PageTimer::new(keys));
+                                    displays.oled.bench(
+                                        if keys == 16 { "16 keys" } else { "32 keys" },
+                                        if surface.draw { "decode + draw" } else { "decode only" },
+                                    );
+                                    oled_changed = true;
+                                }
+                            }
+                            Event::PngNotOffered => {
+                                warn!("Companion doesn't offer png; registering for rgb");
                             }
                             Event::Draw { control, bitmap } => {
                                 let received = line_started.elapsed();
                                 let draw_start = Instant::now();
-                                match displays.bitmap(control, bitmap) {
+                                let result =
+                                    displays.bitmap(control, bitmap, png.as_deref_mut(), surface.draw);
+                                let drawn = draw_start.elapsed();
+                                match result {
                                     Ok(()) => {
-                                        info!(
-                                            "{} bitmap {} B received in {} ms, drawn in {} ms",
-                                            control.id(),
-                                            bytes.len(),
-                                            received.as_millis(),
-                                            draw_start.elapsed().as_millis()
-                                        );
-                                        if control == Control::Encoder {
-                                            oled_changed = true;
+                                        let (received_ms, drawn_ms) =
+                                            (received.as_millis(), drawn.as_millis());
+                                        if let Control::Bench(key) = control {
+                                            // At 32 keys an info line per image would add
+                                            // UART time to every page change.
+                                            debug!(
+                                                "{} bitmap {} B received in {received_ms} ms, drawn in {drawn_ms} ms",
+                                                control.id(),
+                                                bytes.len(),
+                                            );
+                                            let done = now_ms();
+                                            let image = Drawn {
+                                                key,
+                                                line_started_ms: done
+                                                    .saturating_sub(received_ms + drawn_ms),
+                                                done_ms: done,
+                                                wire_bytes: bytes.len(),
+                                                receive_ms: ms32(received_ms),
+                                                decode_ms: ms32(drawn_ms),
+                                            };
+                                            if let Some(change) =
+                                                page_timer.as_mut().and_then(|t| t.drawn(image))
+                                            {
+                                                log_page_change(&change, session, page_timer.as_mut());
+                                            }
                                         } else {
-                                            record_round_trip(round_trips, control);
+                                            info!(
+                                                "{} bitmap {} B received in {received_ms} ms, drawn in {drawn_ms} ms",
+                                                control.id(),
+                                                bytes.len(),
+                                            );
+                                            if control == Control::Encoder {
+                                                oled_changed = true;
+                                            } else {
+                                                record_round_trip(round_trips, control);
+                                            }
                                         }
                                     }
                                     Err(e) => warn!("{} bitmap not drawn: {e:?}", control.id()),
@@ -337,18 +408,27 @@ async fn serve(
                 }
             }
             Either4::Second(()) => {
-                if session.tick(now_ms(), out) == Event::Close {
+                let now = now_ms();
+                if let Some(change) = page_timer.as_mut().and_then(|t| t.tick(now)) {
+                    log_page_change(&change, session, page_timer.as_mut());
+                }
+                if session.tick(now, out) == Event::Close {
                     return Ended::Silence;
                 }
             }
             Either4::Third((button, pressed)) => {
-                if let Some(control) = button.control() {
+                let control = button.control().and_then(|c| surface.layout.physical(c));
+                if let Some(control) = control {
                     if pressed && session.is_registered() {
                         round_trips.sent(control, now_ms());
+                        if let Some(timer) = page_timer.as_mut() {
+                            timer.pressed(now_ms());
+                        }
                     }
                     session.key(control, pressed, out);
                 } else {
-                    // BACK and CONFIRM stay on the device (KTD24); the inputs task logged it.
+                    // BACK and CONFIRM stay on the device (KTD24), and a bench surface has
+                    // no encoder; the inputs task logged it.
                     debug!("{button:?} not sent to Companion");
                 }
             }
@@ -357,7 +437,7 @@ async fn serve(
                 // outgoing buffer; a longer spin is sent over several loops.
                 let detents = encoder::take_pending(ROTATIONS_PER_SEND);
                 // Dropped unless registered, like presses (KTD18, KTD23).
-                if session.is_registered() && detents != 0 {
+                if session.is_registered() && surface.layout == Layout::Normal && detents != 0 {
                     round_trips.sent(Control::Encoder, now_ms());
                     for _ in 0..detents.unsigned_abs() {
                         session.rotate(detents > 0, out);
@@ -398,6 +478,78 @@ fn record_round_trip(round_trips: &mut RoundTrips, control: Control) {
     {
         info!("round trips over the last {WINDOW}: median {median} ms, max {max} ms");
     }
+}
+
+/// One log line per page change on a bench surface, and the median every so often (THI-76).
+fn log_page_change(change: &PageChange, session: &Session, timer: Option<&mut PageTimer>) {
+    let surface = session.config();
+    info!(
+        "page change {}/{} keys {} {}: press to last {}, first to last {} ms, {} images {} B, \
+         receive sum {} max {} ms, decode sum {} max {} ms{}",
+        change.drawn,
+        change.keys,
+        session.image_format().name(),
+        if surface.draw { "draw" } else { "decode" },
+        OptionalMs(change.press_to_last_ms),
+        change.first_to_last_ms,
+        change.images,
+        change.wire_bytes,
+        change.receive_ms_sum,
+        change.receive_ms_max,
+        change.decode_ms_sum,
+        change.decode_ms_max,
+        if change.complete() { "" } else { " (partial)" },
+    );
+    if let Some(timer) = timer
+        && timer.summary_due()
+        && let (Some(median), Some(max)) = (timer.median(), timer.max())
+    {
+        info!(
+            "page changes over the last {WINDOW}: press to last key median {median} ms, max {max} ms; free heap {} B",
+            esp_alloc::HEAP.free()
+        );
+    }
+}
+
+/// Takes the PNG decoder's memory from the heap, zeroed so nothing that size is built on a
+/// stack (KTD4). `None` when the heap can't spare it; PNG images are then reported, not drawn.
+fn alloc_png_workspace() -> Option<Box<PngWorkspace>> {
+    let before = esp_alloc::HEAP.free();
+    let layout = core::alloc::Layout::new::<PngWorkspace>();
+    // SAFETY: the layout is PngWorkspace's own and non-zero in size, and all-zero bytes are a
+    // valid PngWorkspace (documented in deck_core::png and tested there with a zeroed one).
+    let workspace = unsafe {
+        let ptr = alloc::alloc::alloc_zeroed(layout).cast::<PngWorkspace>();
+        (!ptr.is_null()).then(|| Box::from_raw(ptr))
+    };
+    match &workspace {
+        Some(_) => info!(
+            "PNG decoder: {} B from the heap; free heap {before} B -> {} B",
+            layout.size(),
+            esp_alloc::HEAP.free()
+        ),
+        None => warn!(
+            "PNG decoder needs {} B but the heap has {before} B free; png images won't draw",
+            layout.size()
+        ),
+    }
+    workspace
+}
+
+/// `123 ms`, or `none` when the page changed without a press from the deck.
+struct OptionalMs(Option<u32>);
+
+impl core::fmt::Display for OptionalMs {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self.0 {
+            Some(ms) => write!(f, "{ms} ms"),
+            None => f.write_str("none"),
+        }
+    }
+}
+
+fn ms32(ms: u64) -> u32 {
+    u32::try_from(ms).unwrap_or(u32::MAX)
 }
 
 fn now_ms() -> u64 {

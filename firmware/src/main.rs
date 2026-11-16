@@ -19,7 +19,7 @@ mod wifi;
 use core::cell::{Cell, RefCell};
 use deck_core::config::HostConfig;
 use deck_core::mono::MonoFrame;
-use deck_core::session::{DeviceIds, Session};
+use deck_core::session::{DeviceIds, Session, SurfaceConfig};
 use display::{KeyDisplay, SharedPin};
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::Mutex;
@@ -50,12 +50,23 @@ esp_bootloader_esp_idf::esp_app_desc!();
 /// The saved Companion host, shared by the console (writer) and the link (reader).
 pub static HOST: Mutex<CriticalSectionRawMutex, Cell<Option<HostConfig>>> =
     Mutex::new(Cell::new(None));
-/// Raised by the console when the host is set or cleared, so the link reconnects at once.
+/// Raised by the console when the host or the surface changes, so the link reconnects at
+/// once.
 pub static HOST_CHANGED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+/// What the next registration registers as (THI-76). RAM only: a reboot returns to the
+/// normal surface.
+pub static SURFACE: Mutex<CriticalSectionRawMutex, Cell<SurfaceConfig>> =
+    Mutex::new(Cell::new(SurfaceConfig::NORMAL));
 
 /// Replaces the saved host and wakes the link so it reconnects at once.
 pub fn set_host(host: Option<HostConfig>) {
     HOST.lock(|h| h.set(host));
+    HOST_CHANGED.signal(());
+}
+
+/// Replaces the surface config and wakes the link so it re-registers at once.
+pub fn set_surface(surface: SurfaceConfig) {
+    SURFACE.lock(|s| s.set(surface));
     HOST_CHANGED.signal(());
 }
 
@@ -67,7 +78,8 @@ static LINE_BUF: ConstStaticCell<[u8; 72 * 1024]> = ConstStaticCell::new([0; 72 
 static RX_BUF: ConstStaticCell<[u8; 8 * 1024]> = ConstStaticCell::new([0; 8 * 1024]);
 static TX_BUF: ConstStaticCell<[u8; 2 * 1024]> = ConstStaticCell::new([0; 2 * 1024]);
 static CHUNK_BUF: ConstStaticCell<[u8; 2 * 1024]> = ConstStaticCell::new([0; 2 * 1024]);
-static OUT_BUF: ConstStaticCell<[u8; 1024]> = ConstStaticCell::new([0; 1024]);
+/// Outgoing lines; a 32-key bench `ADD-DEVICE` is about 2.3 KB (THI-76).
+static OUT_BUF: ConstStaticCell<[u8; 4 * 1024]> = ConstStaticCell::new([0; 4 * 1024]);
 static SPI_BUF_A: ConstStaticCell<[u8; 1024]> = ConstStaticCell::new([0; 1024]);
 static SPI_BUF_B: ConstStaticCell<[u8; 1024]> = ConstStaticCell::new([0; 1024]);
 static OLED_FRAME: ConstStaticCell<MonoFrame> = ConstStaticCell::new(MonoFrame::new());
