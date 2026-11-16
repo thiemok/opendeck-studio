@@ -124,7 +124,7 @@
 									"isExpression": false
 								},
 								"text": {
-									"value": "A\n$(custom:count)",
+									"value": "A\n$(custom:presses)",
 									"isExpression": false
 								},
 								"color": {
@@ -180,14 +180,14 @@
 								"up": [],
 								"down": [
 									{
-										"id": "set-count-1",
+										"id": "set-presses-1",
 										"definitionId": "custom_variable_set_value",
 										"connectionId": "internal",
 										"type": "action",
 										"children": {},
 										"options": {
 											"name": {
-												"value": "count",
+												"value": "presses",
 												"isExpression": false
 											},
 											"create": {
@@ -195,7 +195,7 @@
 												"isExpression": false
 											},
 											"value": {
-												"value": "$(custom:count) + 1",
+												"value": "$(custom:presses) + 1",
 												"isExpression": true
 											}
 										}
@@ -326,7 +326,7 @@
 									"isExpression": false
 								},
 								"text": {
-									"value": "B\n$(custom:count)",
+									"value": "B\n$(custom:presses)",
 									"isExpression": false
 								},
 								"color": {
@@ -382,14 +382,14 @@
 								"up": [],
 								"down": [
 									{
-										"id": "set-count-2",
+										"id": "set-presses-2",
 										"definitionId": "custom_variable_set_value",
 										"connectionId": "internal",
 										"type": "action",
 										"children": {},
 										"options": {
 											"name": {
-												"value": "count",
+												"value": "presses",
 												"isExpression": false
 											},
 											"create": {
@@ -397,7 +397,7 @@
 												"isExpression": false
 											},
 											"value": {
-												"value": "$(custom:count) - 1",
+												"value": "$(custom:presses) - 1",
 												"isExpression": true
 											}
 										}
