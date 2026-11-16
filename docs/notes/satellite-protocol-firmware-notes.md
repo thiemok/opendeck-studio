@@ -100,7 +100,7 @@ Measured per `KEY-STATE` (`tools/fake-deck/out/run*/protocol.log`):
 |---|---|---|---|---|
 | LCD key (default) | 72×72 | 15,552 B | 20,736 B | 1,650–2,222 B |
 | LCD key (ST7735 candidate) | 80×80 | 19,200 B | 25,600 B | not measured |
-| LCD key (ST7735 candidate) | 128×128 | 49,152 B | 65,536 B | not measured |
+| LCD key (ST7735 candidate) | 128×128 | 49,152 B | 65,536 B | about 2–8 KB; 4.8–6.0 KB per key averaged over a bench page (THI-76) |
 | Encoder / OLED | 128×64 | 24,576 B | 32,768 B | 3,838–4,894 B |
 
 Firmware memory budget: the line buffer must hold the largest `KEY-STATE` line, about 33 KB for the OLED, or about 66 KB with 128×128 keys. Add the decoded frame (raw size above) or decode base64 in streaming fashion straight to the display. An ST7735 wants RGB565, so convert 3 bytes to 2 per pixel while writing. That halves the frame (72×72 → 10,368 B). PNG cuts the wire size about 10×, but needs an inflate implementation and its working memory (about 32 KB window) on the device. P2 weighs that against the 10× bandwidth saving on the chosen board (see `board-and-framework-decision.md`).
@@ -197,6 +197,73 @@ Measured on 2026-11-16 with the P3 firmware: both ScreenKeys and the 1.3" OLED/E
 - **What a button shows decides the cost.** Each image Companion changes is sent whole, so a press that changes several buttons pays for each. Run 1's shared `count` tripled the wait.
 - **Encoder direction was reversed:** the counter fell when turning clockwise, so `CLOCKWISE_SIGN` is now −1.
 - **Not run yet:** Companion stop/start recovery with three displays, the OLED's status screens, booting with the module unplugged, and input while disconnected. P2 covered recovery for one key.
+
+## Page change at 16 and 32 keys (THI-76)
+
+THI-76 decides two things: keep `rgb` key images or switch to a compressed format, and whether a 4×8 deck (32 keys) pages fast enough. A Companion page change redraws every key, so it is the worst case for transfer. P3 showed transfer, not drawing, sets the time: a 128×128 `rgb` key image is a 65,646 B line, received in a median of 192 ms and drawn in 26 ms at about 290–340 KB/s over Wi-Fi.
+
+`png` is the compressed format tried. `webp` is also offered, but a no_std WebP decoder would be a project of its own. The deck decodes PNG while streaming (`crates/deck-core/src/png.rs`): no whole-image buffer, about 45 KB of working memory (a 32 KB inflate window, about 11 KB of inflate state and three scanlines), taken from the heap the first time `png` is selected.
+
+### What was checked on the desktop (2026-11-16)
+
+The fake deck ran against the pinned Companion 5.1.3 container with both bench pages imported, ten page changes per cell (`tools/fake-deck/README.md`, "Bench pages"):
+
+- Companion sends a `KEY-STATE` for **every** key on a page change, 16 of 16 and 32 of 32 every time, including the page-nav buttons whose image didn't change.
+- Companion accepts a new layout from the same `SERIAL`, so `bench 16` → `bench 32` → `bench off` needs no other device ID.
+- Companion's PNGs are 8-bit RGB (colour type 2), non-interlaced, one `IDAT`, with Sub, Up and Paeth filters. The same button as `png` and as `rgb` gives identical pixels. Both are test fixtures in `crates/deck-core/tests/fixtures/`.
+
+Bytes on the wire per page change, which is what the deck will receive:
+
+| Keys | `rgb` | `png` (bench page 1 / page 2) | Ratio |
+|---|---|---|---|
+| 16 | 1,050,178 B (65,636 B per key) | 77,126 B / 89,270 B | about 12–14× |
+| 32 | 2,100,354 B | 166,298 B / 192,646 B | about 11–13× |
+
+Desktop page-change times, press to last key (median of 10, localhost, Node): 16 `rgb` 108 ms, 16 `png` 83 ms, 32 `rgb` 170 ms, 32 `png` 130 ms. They show the tooling works. They say nothing about the deck, whose link is a hundred times slower.
+
+At the P3 throughput, transfer alone would be about 3.1–3.6 s for 16 `rgb` keys and 6.2–7.2 s for 32. For `png` it would be about 0.23–0.31 s and 0.5–0.66 s, plus decode time. These are estimates. The bench run below replaces them.
+
+### Bench runbook
+
+1. Flash the firmware (`firmware/README.md`), with the deck's host set to the Companion running the bench pages.
+2. Import `tools/fake-deck/companion-config/bench-page-1.companionconfig` as page 1 (**Replace page 1**) and `bench-page-2.companionconfig` as a new page 2 (**[ Insert new page ]**).
+3. For each cell of the table, type its commands on the serial console, wait for the OLED to show "BENCH", then press key A and key B alternately for ten page changes. Key A is page up and key B page down, so the deck moves between the two filled pages and never onto an empty page 3.
+4. Copy the `page changes over the last …: press to last key median … ms, max … ms; free heap … B` line, and one `page change` line for wire bytes and the receive and decode sums.
+5. `bench off` and `image rgb` (or a reboot) return to the normal surface.
+
+The first `page change` line after registering has no press (`press to last none`): it is Companion's initial redraw. Leave it out.
+
+| Keys | Format | Draw | Commands | Wire B per page change | Decode ms per key (sum / 32 or 16) | Free heap after registering | Press to last key, median / max |
+|---|---|---|---|---|---|---|---|
+| 16 | `rgb` | decode only | `bench 16`, `image rgb` | | | | |
+| 16 | `png` | decode only | `bench 16`, `image png` | | | | |
+| 32 | `rgb` | decode only | `bench 32`, `image rgb` | | | | |
+| 32 | `png` | decode only | `bench 32`, `image png` | | | | |
+| 16 | `rgb` | draw | `bench 16 draw`, `image rgb` | | | | |
+| 16 | `png` | draw | `bench 16 draw`, `image png` | | | | |
+| 32 | `rgb` | draw | `bench 32 draw`, `image rgb` | | | | |
+| 32 | `png` | draw | `bench 32 draw`, `image png` | | | | |
+
+"Draw" also sends every key's image to one of the two panels over SPI, as a real deck with a panel per key would. Its decode column then includes the SPI write.
+
+PNG memory: the log line `PNG decoder: … B from the heap; free heap … B -> … B` appears once, at the first `png` registration. Record both numbers:
+
+| Free heap before | Free heap after | |
+|---|---|---|
+| | | |
+
+### What the numbers leave out
+
+- **The OLED.** A bench surface has no encoder. On the final deck a page change also redraws the OLED: one more image, 32,878 B as `rgb` or about 2.8 KB as `png`.
+- **Icons.** The bench pages are solid colours and text, which compress well. Buttons with photos or detailed icons give larger PNGs, so the `png` columns are a best case.
+- **Ethernet** (THI-84) and a faster SPI clock are not measured.
+
+### Decisions
+
+To fill in after the bench run:
+
+- **Keep `rgb` or switch to `png`:** pending.
+- **Is 32 keys fast enough for the 4×8 deck, or what would it need (compression, Ethernet, a faster SPI clock)?** Pending.
 
 ## Rotation amounts
 
