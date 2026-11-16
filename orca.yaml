@@ -34,5 +34,8 @@ scripts:
       echo "WARNING: firmware/wifi.env is a placeholder; put real credentials in it before flashing"
     fi
 
-    # The P0 fake-deck test bench (CI runs its tests too).
+    # The P0 fake-deck test bench (CI runs its tests too). Create Companion's data
+    # directory as the user: if Docker creates it, it is root-owned and the
+    # container exits with EACCES.
     (cd tools/fake-deck && npm ci)
+    mkdir -p tools/fake-deck/companion-data
