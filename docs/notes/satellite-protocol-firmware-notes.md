@@ -244,7 +244,7 @@ The first `page change` line after registering has no press (`press to last none
 | 32 | `rgb` | draw | `bench 32 draw`, `image rgb` | | | | |
 | 32 | `png` | draw | `bench 32 draw`, `image png` | | | | |
 
-"Draw" also sends every key's image to one of the two panels over SPI, as a real deck with a panel per key would. Its decode column then includes the SPI write.
+"Draw" also sends every key's image to one of the two panels over SPI, as a real deck with a panel per key would. Its decode column then includes the SPI write. "Decode only" still draws keys `0/0` and `0/1` on the two physical panels, so its decode sum includes those two SPI writes (about 26 ms each for `rgb`).
 
 PNG memory: the log line `PNG decoder: … B from the heap; free heap … B -> … B` appears once, at the first `png` registration. Record both numbers:
 
