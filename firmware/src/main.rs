@@ -10,13 +10,17 @@
 mod config_store;
 mod console;
 mod display;
-mod key;
+mod encoder;
+mod inputs;
 mod link;
+mod oled;
 mod wifi;
 
-use core::cell::Cell;
+use core::cell::{Cell, RefCell};
 use deck_core::config::HostConfig;
+use deck_core::mono::MonoFrame;
 use deck_core::session::{DeviceIds, Session};
+use display::{KeyDisplay, SharedPin};
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -26,14 +30,18 @@ use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::efuse::{self, InterfaceMacAddress};
 use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
+use esp_hal::i2c::master::{Config as I2cConfig, I2c};
+use esp_hal::pcnt::Pcnt;
 use esp_hal::spi::Mode;
 use esp_hal::spi::master::{Config as SpiConfig, Spi};
 use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::uart::{Config as UartConfig, UartRx};
 use esp_storage::FlashStorage;
-use log::{error, info};
-use static_cell::ConstStaticCell;
+use inputs::Button;
+use log::{error, info, warn};
+use oled::Oled;
+use static_cell::{ConstStaticCell, StaticCell};
 
 extern crate alloc;
 
@@ -57,9 +65,14 @@ static RX_BUF: ConstStaticCell<[u8; 8 * 1024]> = ConstStaticCell::new([0; 8 * 10
 static TX_BUF: ConstStaticCell<[u8; 2 * 1024]> = ConstStaticCell::new([0; 2 * 1024]);
 static CHUNK_BUF: ConstStaticCell<[u8; 2 * 1024]> = ConstStaticCell::new([0; 2 * 1024]);
 static OUT_BUF: ConstStaticCell<[u8; 1024]> = ConstStaticCell::new([0; 1024]);
-static SPI_BUF: ConstStaticCell<[u8; 1024]> = ConstStaticCell::new([0; 1024]);
+static SPI_BUF_A: ConstStaticCell<[u8; 1024]> = ConstStaticCell::new([0; 1024]);
+static SPI_BUF_B: ConstStaticCell<[u8; 1024]> = ConstStaticCell::new([0; 1024]);
+static OLED_FRAME: ConstStaticCell<MonoFrame> = ConstStaticCell::new(MonoFrame::new());
+/// The keys share SPI2 and the DC line (KTD21).
+static SPI_BUS: StaticCell<RefCell<display::SpiBus>> = StaticCell::new();
+static KEY_DC: StaticCell<RefCell<Output<'static>>> = StaticCell::new();
 
-/// How long the calibration pattern stays up at boot.
+/// How long the calibration patterns stay up at boot.
 const TEST_PATTERN_TIME: Duration = Duration::from_secs(3);
 
 #[allow(
@@ -107,7 +120,10 @@ async fn main(spawner: Spawner) -> ! {
     }
     HOST.lock(|h| h.set(saved));
 
+    // Pins: docs/notes/deck-wiring.md.
     let _backlight = Output::new(peripherals.GPIO14, Level::High, OutputConfig::default());
+    let mut key_rst = Output::new(peripherals.GPIO15, Level::High, OutputConfig::default());
+    display::reset_panels(&mut key_rst);
     let spi = Spi::new(
         peripherals.SPI2,
         SpiConfig::default()
@@ -117,20 +133,68 @@ async fn main(spawner: Spawner) -> ! {
     .expect("SPI config")
     .with_sck(peripherals.GPIO5)
     .with_mosi(peripherals.GPIO19);
-    let mut display = display::KeyDisplay::new(
-        spi,
+    let bus = SPI_BUS.init(RefCell::new(spi));
+    let dc = KEY_DC.init(RefCell::new(Output::new(
+        peripherals.GPIO27,
+        Level::Low,
+        OutputConfig::default(),
+    )));
+    let mut key_a = KeyDisplay::new(
+        bus,
         Output::new(peripherals.GPIO33, Level::High, OutputConfig::default()),
-        Output::new(peripherals.GPIO27, Level::Low, OutputConfig::default()),
-        Output::new(peripherals.GPIO15, Level::High, OutputConfig::default()),
-        SPI_BUF.take(),
+        SharedPin::new(dc),
+        SPI_BUF_A.take(),
     );
-    display.test_pattern();
+    let mut key_b = KeyDisplay::new(
+        bus,
+        Output::new(peripherals.GPIO26, Level::High, OutputConfig::default()),
+        SharedPin::new(dc),
+        SPI_BUF_B.take(),
+    );
+    key_a.test_pattern("KEY A");
+    key_b.test_pattern("KEY B");
 
-    let key_pin = Input::new(
-        peripherals.GPIO32,
-        InputConfig::default().with_pull(Pull::Up),
+    let i2c = I2c::new(
+        peripherals.I2C0,
+        I2cConfig::default().with_frequency(Rate::from_khz(oled::calibration::I2C_KHZ)),
+    )
+    .expect("I2C0 config")
+    .with_sda(peripherals.GPIO22)
+    .with_scl(peripherals.GPIO20)
+    .into_async();
+    let mut oled = Oled::new(i2c, OLED_FRAME.take());
+    oled.init().await;
+    oled.test_pattern();
+    if let Err(e) = oled.flush().await {
+        warn!("OLED test pattern not shown: {e:?}");
+    }
+
+    // The keys use the internal pull-up; the module's inputs have their own (KTD24, KTD25).
+    let key_input = InputConfig::default().with_pull(Pull::Up);
+    let module_input = InputConfig::default();
+    spawner.spawn(
+        inputs::inputs_task([
+            (Button::KeyA, Input::new(peripherals.GPIO32, key_input)),
+            (Button::KeyB, Input::new(peripherals.GPIO25, key_input)),
+            (
+                Button::EncoderPush,
+                Input::new(peripherals.GPIO36, module_input),
+            ),
+            (Button::Back, Input::new(peripherals.GPIO39, module_input)),
+            (
+                Button::Confirm,
+                Input::new(peripherals.GPIO37, module_input),
+            ),
+        ])
+        .expect("spawn inputs task"),
     );
-    spawner.spawn(key::key_task(key_pin).expect("spawn key task"));
+
+    let pcnt = Pcnt::new(peripherals.PCNT);
+    let phase_a = Input::new(peripherals.GPIO34, module_input);
+    let phase_b = Input::new(peripherals.GPIO4, module_input);
+    encoder::configure(&pcnt.unit0, &phase_a, &phase_b);
+    spawner
+        .spawn(encoder::encoder_task(pcnt.unit0, [phase_a, phase_b]).expect("spawn encoder task"));
 
     let console_rx = UartRx::new(
         peripherals.UART0,
@@ -152,7 +216,7 @@ async fn main(spawner: Spawner) -> ! {
     Timer::after(TEST_PATTERN_TIME).await;
     link::run(
         stack,
-        display,
+        link::Displays { key_a, key_b, oled },
         session,
         link::Buffers {
             line: LINE_BUF.take(),

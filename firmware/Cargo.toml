@@ -31,6 +31,7 @@ static_cell = "2.1.1"
 
 mipidsi = "0.10.0"
 embedded-graphics = "0.8"
+embedded-hal = "1.0"
 embedded-hal-bus = "0.3"
 
 # The default debug profile is too slow and too big for resource-constrained devices.
