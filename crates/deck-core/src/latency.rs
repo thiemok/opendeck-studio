@@ -38,9 +38,13 @@ impl RoundTrips {
         }
     }
 
-    /// A press or rotation for `control` went out.
+    /// A press or rotation for `control` went out. Bench keys are timed per page change
+    /// instead (`pagetime`), so they are ignored here.
     pub fn sent(&mut self, control: Control, now_ms: u64) {
-        let pending = &mut self.pending[slot(control)];
+        let Some(slot) = slot(control) else {
+            return;
+        };
+        let pending = &mut self.pending[slot];
         match *pending {
             Some(sent) if now_ms.saturating_sub(sent) <= MAX_AGE_MS => {}
             _ => *pending = Some(now_ms),
@@ -49,7 +53,7 @@ impl RoundTrips {
 
     /// `control` finished drawing; returns the round trip in milliseconds when it answers a send.
     pub fn drawn(&mut self, control: Control, now_ms: u64) -> Option<u32> {
-        let sent = self.pending[slot(control)].take()?;
+        let sent = self.pending[slot(control)?].take()?;
         let elapsed = now_ms.saturating_sub(sent);
         if elapsed > MAX_AGE_MS {
             return None;
@@ -93,11 +97,12 @@ impl RoundTrips {
     }
 }
 
-fn slot(control: Control) -> usize {
+fn slot(control: Control) -> Option<usize> {
     match control {
-        Control::KeyA => 0,
-        Control::KeyB => 1,
-        Control::Encoder => 2,
+        Control::KeyA => Some(0),
+        Control::KeyB => Some(1),
+        Control::Encoder => Some(2),
+        Control::Bench(_) => None,
     }
 }
 
@@ -119,6 +124,13 @@ mod tests {
         rt.sent(Control::KeyA, 100);
         assert_eq!(rt.drawn(Control::KeyB, 150), None);
         assert_eq!(rt.drawn(Control::KeyA, 170), Some(70));
+    }
+
+    #[test]
+    fn bench_keys_are_not_timed_here() {
+        let mut rt = RoundTrips::new();
+        rt.sent(Control::Bench(0), 100);
+        assert_eq!(rt.drawn(Control::Bench(0), 150), None);
     }
 
     #[test]

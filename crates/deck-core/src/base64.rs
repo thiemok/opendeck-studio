@@ -69,18 +69,23 @@ pub fn encode<'o>(input: &[u8], out: &'o mut [u8]) -> Option<&'o str> {
     let len = encoded_len(input.len());
     let out = out.get_mut(..len)?;
     for (chunk, dst) in input.chunks(3).zip(out.chunks_mut(4)) {
-        let n = (u32::from(chunk[0]) << 16)
-            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
-            | u32::from(*chunk.get(2).unwrap_or(&0));
-        for (i, d) in dst.iter_mut().enumerate() {
-            *d = if i <= chunk.len() {
-                ALPHABET[((n >> (18 - 6 * i)) & 0x3f) as usize]
-            } else {
-                b'='
-            };
-        }
+        dst.copy_from_slice(&encode_group(chunk));
     }
     core::str::from_utf8(out).ok()
+}
+
+/// Encodes one group of 1–3 bytes as four characters, padded with `=`.
+pub(crate) fn encode_group(chunk: &[u8]) -> [u8; 4] {
+    let n = (u32::from(chunk[0]) << 16)
+        | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
+        | u32::from(*chunk.get(2).unwrap_or(&0));
+    core::array::from_fn(|i| {
+        if i <= chunk.len() {
+            ALPHABET[((n >> (18 - 6 * i)) & 0x3f) as usize]
+        } else {
+            b'='
+        }
+    })
 }
 
 #[cfg(test)]
