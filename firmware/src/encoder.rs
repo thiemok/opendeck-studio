@@ -39,12 +39,13 @@ pub static TURNED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 /// raised again so the link comes back for them.
 pub fn take_pending(max: u32) -> i32 {
     let max = i32::try_from(max).unwrap_or(i32::MAX);
-    let taken = PENDING.lock(|p| {
-        let taken = p.get().clamp(-max, max);
-        p.set(p.get() - taken);
-        taken
+    let (taken, rest) = PENDING.lock(|p| {
+        let pending = p.get();
+        let taken = pending.clamp(-max, max);
+        p.set(pending - taken);
+        (taken, pending - taken)
     });
-    if PENDING.lock(|p| p.get()) != 0 {
+    if rest != 0 {
         TURNED.signal(());
     }
     taken

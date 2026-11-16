@@ -83,12 +83,12 @@ impl Oled {
         }
     }
 
-    /// Sends the frame if it changed since the last flush.
+    /// Sends the frame if it changed since the last successful flush; after a failed write
+    /// the next flush sends it again.
     pub async fn flush(&mut self) -> Result<(), I2cError> {
         if !self.dirty {
             return Ok(());
         }
-        self.dirty = false;
         let column = calibration::COLUMN_OFFSET;
         let mut data = [0u8; 1 + WIDTH];
         data[0] = DATA;
@@ -103,6 +103,7 @@ impl Oled {
             data[1..].copy_from_slice(self.frame.page(page));
             self.i2c.write_async(ADDRESS, &data).await?;
         }
+        self.dirty = false;
         Ok(())
     }
 
