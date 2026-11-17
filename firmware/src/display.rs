@@ -4,6 +4,7 @@
 use core::cell::RefCell;
 use core::convert::Infallible;
 use deck_core::bitmap::{self, BitmapError};
+use deck_core::png::{self, PngError, PngWorkspace};
 use deck_core::session::KEY_SIZE;
 use embedded_graphics::mono_font::ascii::{FONT_6X10, FONT_9X15_BOLD};
 use embedded_graphics::mono_font::{MonoFont, MonoTextStyle};
@@ -39,6 +40,40 @@ type Panel = mipidsi::Display<SpiInterface<'static, SpiDevice, SharedPin>, ST773
 
 /// How many `FONT_6X10` characters fit across the 128 px key.
 const HOST_CHARS_PER_LINE: usize = 21;
+
+/// Why a Companion bitmap was not (fully) drawn.
+#[derive(Debug)]
+#[allow(dead_code, reason = "the fields are read through Debug, in the log")]
+pub enum DrawError {
+    Rgb(BitmapError),
+    Png(PngError),
+    /// A `png` bitmap arrived but the decoder's memory could not be allocated.
+    NoPngWorkspace,
+}
+
+/// Whether a `BITMAP` value is a PNG data URL rather than base64 `rgb`.
+pub fn is_png(bitmap: &str) -> bool {
+    bitmap.starts_with(png::DATA_URL_PREFIX)
+}
+
+/// Decodes a 128×128 key bitmap without drawing it, for the bench's decode-only mode
+/// (THI-76). The checksum keeps the compiler from dropping the decode.
+pub fn decode_only(bitmap: &str, ws: Option<&mut PngWorkspace>) -> Result<u32, DrawError> {
+    if is_png(bitmap) {
+        let ws = ws.ok_or(DrawError::NoPngWorkspace)?;
+        let mut sum = 0u32;
+        png::decode(bitmap, KEY_SIZE, KEY_SIZE, ws, |_, rgb| {
+            for px in rgb.as_chunks::<3>().0 {
+                sum = sum.rotate_left(1) ^ u32::from(bitmap::rgb565(*px));
+            }
+        })
+        .map_err(DrawError::Png)?;
+        Ok(sum)
+    } else {
+        let pixels = bitmap::rgb565_pixels(bitmap, KEY_SIZE, KEY_SIZE).map_err(DrawError::Rgb)?;
+        Ok(pixels.fold(0u32, |sum, p| sum.rotate_left(1) ^ u32::from(p)))
+    }
+}
 
 /// What the displays show while the deck is not registered with Companion (KTD17, KTD26).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -154,14 +189,29 @@ impl KeyDisplay {
         }
     }
 
-    /// Draws a Companion `rgb` bitmap. A bad bitmap is reported, not drawn.
-    pub fn bitmap(&mut self, b64: &str) -> Result<(), BitmapError> {
-        let pixels = bitmap::rgb565_pixels(b64, KEY_SIZE, KEY_SIZE)?;
+    /// Draws a Companion bitmap, `rgb` or `png`. A bad `rgb` bitmap is reported and not
+    /// drawn; a `png` fault is found as rows arrive, so the rows before it stay drawn.
+    pub fn bitmap(&mut self, bitmap: &str, ws: Option<&mut PngWorkspace>) -> Result<(), DrawError> {
         let end = KEY_SIZE - 1;
-        let _ = self
-            .panel
-            .set_pixels(0, 0, end, end, pixels.map(|p| Rgb565::from(RawU16::new(p))));
-        Ok(())
+        if !is_png(bitmap) {
+            let pixels =
+                bitmap::rgb565_pixels(bitmap, KEY_SIZE, KEY_SIZE).map_err(DrawError::Rgb)?;
+            let _ =
+                self.panel
+                    .set_pixels(0, 0, end, end, pixels.map(|p| Rgb565::from(RawU16::new(p))));
+            return Ok(());
+        }
+        let ws = ws.ok_or(DrawError::NoPngWorkspace)?;
+        let panel = &mut self.panel;
+        png::decode(bitmap, KEY_SIZE, KEY_SIZE, ws, |y, rgb| {
+            let pixels = rgb
+                .as_chunks::<3>()
+                .0
+                .iter()
+                .map(|px| Rgb565::from(RawU16::new(bitmap::rgb565(*px))));
+            let _ = panel.set_pixels(0, y, end, y, pixels);
+        })
+        .map_err(DrawError::Png)
     }
 
     pub fn blank(&mut self) {

@@ -69,6 +69,35 @@ const button = (text: string, bg: number, actionSets: Record<string, unknown[]>,
 	localVariables: [],
 })
 
+// `--bench <1|2>` writes one of two THI-76 bench pages for a 32-key surface (rows 0–3, columns
+// 0–7). Every button shows its own colour and text, which differ between the two pages, so each
+// page change redraws every key. 0/0 and 0/1 are Companion's page up and page down, shaped as a
+// fresh Companion 5.1.3 page exports them; on a 16-key surface only rows 0–1 are shown.
+const benchArg = process.argv.indexOf('--bench')
+const benchPage = benchArg === -1 ? null : Number(process.argv[benchArg + 1])
+if (benchPage !== null && benchPage !== 1 && benchPage !== 2) {
+	process.stderr.write('usage: make-page.ts --bench <1|2>\n')
+	process.exit(2)
+}
+
+/** The firmware bench surface's `CONTROLID`s: rows of 8 keys from `0/0`, row by row. */
+const benchControlIds = (keys: number) => Array.from({ length: keys }, (_, i) => `${Math.floor(i / 8)}/${i % 8}`)
+
+/** A fully saturated colour for hue 0–360 as Companion's 0xRRGGBB number, darkened enough for white text. */
+const hue = (degrees: number): number => {
+	const h = ((degrees % 360) + 360) % 360 / 60
+	const x = Math.round(200 * (1 - Math.abs((h % 2) - 1)))
+	const [r, g, b] = [
+		[200, x, 0],
+		[x, 200, 0],
+		[0, 200, x],
+		[0, x, 200],
+		[x, 0, 200],
+		[200, 0, x],
+	][Math.floor(h) % 6]
+	return (r << 16) | (g << 8) | b
+}
+
 // `--hardware` lays the page out for the firmware deck instead, which leaves column 0 to
 // Companion's page buttons (KTD12, KTD20 in the PoC plan).
 // The keys there count their own presses in `presses`, so a turn redraws only the OLED
@@ -107,20 +136,30 @@ place(
 	)
 )
 
+if (benchPage !== null) {
+	for (const key of Object.keys(controls)) delete controls[key]
+	benchControlIds(32).forEach((id, i) => {
+		if (id === '0/0') place(id, { type: 'pageup' })
+		else if (id === '0/1') place(id, { type: 'pagedown' })
+		// Page 2 shifts every hue by half a step, so no key keeps its colour across a page change.
+		else place(id, button(`P${benchPage}\n${id}`, hue((i + (benchPage - 1) / 2) * (360 / 32)), {}))
+	})
+}
+
 const page = {
 	version: 12,
 	type: 'page',
 	companionBuild: '5.1.3+10036-stable-93ea3fa61c',
 	page: {
-		id: 'fakeDeckPage00000000',
-		name: 'FAKE DECK',
+		id: benchPage === null ? 'fakeDeckPage00000000' : `benchPage${benchPage}0000000000`,
+		name: benchPage === null ? 'FAKE DECK' : `BENCH ${benchPage}`,
 		controls,
 		gridSize: { minColumn: 0, maxColumn: 7, minRow: 0, maxRow: 3 },
 		pageVariables: [],
 	},
 	instances: {},
 	connectionCollections: [],
-	oldPageNumber: 1,
+	oldPageNumber: benchPage ?? 1,
 	imageLibrary: [],
 	imageLibraryCollections: [],
 }

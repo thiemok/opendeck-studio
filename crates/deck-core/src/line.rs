@@ -5,6 +5,8 @@
 //! a backslash escapes the next character inside quoted values, and a key is split
 //! from its value on the first `=` only (base64 padding contains `=`).
 
+use crate::base64;
+
 /// What [`LineFramer::feed`] reports for each completed line.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Frame<'a> {
@@ -260,6 +262,27 @@ impl<'b> LineWriter<'b> {
         self.push(b" ").push(text.as_bytes())
     }
 
+    /// Appends ` KEY="<base64>"`, encoding whatever `write` feeds the sink, so a long value
+    /// such as a layout manifest needs no buffer of its own.
+    pub fn quoted_base64(
+        &mut self,
+        key: &str,
+        write: impl FnOnce(&mut Base64Sink<'_, 'b>),
+    ) -> &mut Self {
+        self.push(b" ").push(key.as_bytes()).push(b"=\"");
+        let mut sink = Base64Sink {
+            writer: self,
+            group: [0; 3],
+            len: 0,
+        };
+        write(&mut sink);
+        if sink.len > 0 {
+            let chars = base64::encode_group(&sink.group[..sink.len]);
+            sink.writer.push(&chars);
+        }
+        self.push(b"\"")
+    }
+
     /// Ends the line with `\n`.
     pub fn end(&mut self) -> &mut Self {
         self.push(b"\n")
@@ -284,6 +307,27 @@ impl<'b> LineWriter<'b> {
     pub fn clear(&mut self) {
         self.len = 0;
         self.overflowed = false;
+    }
+}
+
+/// Base64-encodes bytes straight into a [`LineWriter`]; see [`LineWriter::quoted_base64`].
+pub struct Base64Sink<'w, 'b> {
+    writer: &'w mut LineWriter<'b>,
+    group: [u8; 3],
+    len: usize,
+}
+
+impl Base64Sink<'_, '_> {
+    pub fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.group[self.len] = b;
+            self.len += 1;
+            if self.len == 3 {
+                let chars = base64::encode_group(&self.group);
+                self.writer.push(&chars);
+                self.len = 0;
+            }
+        }
     }
 }
 
@@ -440,5 +484,28 @@ mod tests {
         let mut w = LineWriter::new(&mut buf);
         w.command("PING").raw("0123456789").end();
         assert_eq!(w.bytes(), None);
+    }
+
+    #[test]
+    fn quoted_base64_streams_any_split_of_the_value() {
+        for parts in [&["foobar"][..], &["f", "oob", "ar"], &["fo", "o"], &[]] {
+            let mut buf = [0u8; 64];
+            let mut w = LineWriter::new(&mut buf);
+            w.command("X")
+                .quoted_base64("V", |sink| {
+                    for part in parts {
+                        sink.write(part.as_bytes());
+                    }
+                })
+                .end();
+            let joined = parts.concat();
+            let mut want = [0u8; 16];
+            let want = base64::encode(joined.as_bytes(), &mut want).unwrap();
+            assert_eq!(
+                w.bytes(),
+                Some(format!("X V=\"{want}\"\n").as_bytes()),
+                "{parts:?}"
+            );
+        }
     }
 }

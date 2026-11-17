@@ -5,8 +5,7 @@
 //! [`LineWriter`] for the firmware to send, and the return value says what the
 //! firmware must do with the key or the socket.
 
-use crate::base64;
-use crate::line::{LineWriter, Message, Status};
+use crate::line::{Base64Sink, LineWriter, Message, Status};
 
 /// Native ScreenKey size; Companion renders the keys at exactly this size.
 pub const KEY_SIZE: u16 = 128;
@@ -22,6 +21,16 @@ pub const BACKOFF_MAX_MS: u64 = 5_000;
 const PRODUCT_NAME: &str = "opendeck";
 /// Two keys and the encoder in row 0; column 0 is left to Companion's page buttons (KTD12, KTD20).
 const MANIFEST_JSON: &str = r#"{"stylePresets":{"default":{"bitmap":{"w":128,"h":128}},"encoder":{"bitmap":{"w":128,"h":64}}},"controls":{"0/1":{"row":0,"column":1,"stylePreset":"default"},"0/2":{"row":0,"column":2,"stylePreset":"default"},"0/3":{"row":0,"column":3,"stylePreset":"encoder"}}}"#;
+/// A bench surface is rows of this many keys from `0/0` (THI-76).
+pub const BENCH_COLUMNS: u8 = 8;
+pub const MAX_BENCH_KEYS: u8 = 32;
+/// `CONTROLID`s of the bench keys, row by row.
+const BENCH_IDS: [&str; MAX_BENCH_KEYS as usize] = [
+    "0/0", "0/1", "0/2", "0/3", "0/4", "0/5", "0/6", "0/7", //
+    "1/0", "1/1", "1/2", "1/3", "1/4", "1/5", "1/6", "1/7", //
+    "2/0", "2/1", "2/2", "2/3", "2/4", "2/5", "2/6", "2/7", //
+    "3/0", "3/1", "3/2", "3/3", "3/4", "3/5", "3/6", "3/7",
+];
 
 /// A control the deck registers with Companion (KTD20).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,6 +39,8 @@ pub enum Control {
     KeyB,
     /// Encoder rotation and push, shown on the OLED.
     Encoder,
+    /// Key `n` of a bench surface, row by row from `0/0` (THI-76).
+    Bench(u8),
 }
 
 impl Control {
@@ -39,14 +50,88 @@ impl Control {
             Control::KeyA => "0/1",
             Control::KeyB => "0/2",
             Control::Encoder => "0/3",
+            Control::Bench(n) => BENCH_IDS.get(usize::from(n)).copied().unwrap_or(""),
         }
     }
 
-    pub fn from_id(id: &str) -> Option<Self> {
-        [Control::KeyA, Control::KeyB, Control::Encoder]
-            .into_iter()
-            .find(|c| c.id() == id)
+    /// The control `id` names on a surface with this layout.
+    pub fn from_id(id: &str, layout: Layout) -> Option<Self> {
+        match layout.bench_keys() {
+            0 => [Control::KeyA, Control::KeyB, Control::Encoder]
+                .into_iter()
+                .find(|c| c.id() == id),
+            keys => BENCH_IDS[..usize::from(keys)]
+                .iter()
+                .position(|&b| b == id)
+                .map(|n| Control::Bench(n as u8)),
+        }
     }
+}
+
+/// Which controls the deck registers (THI-76).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Layout {
+    /// The PoC surface: two keys and the encoder.
+    Normal,
+    /// 16 keys (2×8) or 32 keys (4×8), no encoder.
+    Bench16,
+    Bench32,
+}
+
+impl Layout {
+    /// How many bench keys the surface has; 0 for the normal surface.
+    pub fn bench_keys(self) -> u8 {
+        match self {
+            Layout::Normal => 0,
+            Layout::Bench16 => 16,
+            Layout::Bench32 => 32,
+        }
+    }
+
+    /// The control a physical key or the encoder push stands for on this surface. On a bench
+    /// surface the two keys are bench keys `0/0` and `0/1` (page up and down on the bench
+    /// pages), and the encoder isn't registered.
+    pub fn physical(self, control: Control) -> Option<Control> {
+        match (self, control) {
+            (Layout::Normal, c) => Some(c),
+            (_, Control::KeyA) => Some(Control::Bench(0)),
+            (_, Control::KeyB) => Some(Control::Bench(1)),
+            _ => None,
+        }
+    }
+}
+
+/// The bitmap format of a registration. The deck asks for `png` whenever `CAPS` offers it
+/// (THI-76: about 4× faster page changes than raw `rgb`) and falls back to `rgb`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageFormat {
+    Rgb,
+    Png,
+}
+
+impl ImageFormat {
+    pub fn name(self) -> &'static str {
+        match self {
+            ImageFormat::Rgb => "rgb",
+            ImageFormat::Png => "png",
+        }
+    }
+}
+
+/// What the deck registers as, set from the serial console and applied at the next
+/// registration (THI-76, KTD1). Not saved: a reboot returns to [`SurfaceConfig::NORMAL`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SurfaceConfig {
+    pub layout: Layout,
+    /// On a bench surface, also draw every key's image on a panel, not only decode it.
+    pub draw: bool,
+}
+
+impl SurfaceConfig {
+    pub const NORMAL: Self = Self {
+        layout: Layout::Normal,
+        draw: false,
+    };
 }
 
 /// `DEVICEID` and `SERIAL`, derived from the Wi-Fi MAC so Companion remembers
@@ -97,6 +182,8 @@ pub enum Event<'a> {
         control: Control,
         bitmap: &'a str,
     },
+    /// `png` was asked for but `CAPS` doesn't offer it, so the deck registers for `rgb`.
+    PngNotOffered,
     /// `KEYS-CLEAR`: blank every display.
     Blank,
     /// Close the socket (silence watchdog). Then call [`Session::closed`].
@@ -110,6 +197,9 @@ pub enum Event<'a> {
 
 pub struct Session {
     ids: DeviceIds,
+    config: SurfaceConfig,
+    /// The format the current registration asked for.
+    format: ImageFormat,
     state: LinkState,
     last_rx_ms: u64,
     last_ping_ms: u64,
@@ -121,12 +211,29 @@ impl Session {
     pub fn new(ids: DeviceIds) -> Self {
         Self {
             ids,
+            config: SurfaceConfig::NORMAL,
+            format: ImageFormat::Rgb,
             state: LinkState::Disconnected,
             last_rx_ms: 0,
             last_ping_ms: 0,
             retry_at_ms: 0,
             backoff_ms: BACKOFF_MIN_MS,
         }
+    }
+
+    /// Replaces the surface config; it applies at the next registration, so the caller
+    /// reconnects for it to take effect.
+    pub fn set_config(&mut self, config: SurfaceConfig) {
+        self.config = config;
+    }
+
+    pub fn config(&self) -> SurfaceConfig {
+        self.config
+    }
+
+    /// The bitmap format the current registration asked Companion for.
+    pub fn image_format(&self) -> ImageFormat {
+        self.format
     }
 
     pub fn state(&self) -> LinkState {
@@ -176,8 +283,20 @@ impl Session {
                 if msg.get("NONSQUARE").and_then(|v| v.as_bool()) != Some(true) {
                     return Event::Rejected("Companion lacks NONSQUARE; it needs Companion 5.0+");
                 }
+                let png_offered = msg
+                    .get("BITMAP_FORMATS")
+                    .is_some_and(|v| v.raw().split(',').any(|f| f == "png"));
+                self.format = if png_offered {
+                    ImageFormat::Png
+                } else {
+                    ImageFormat::Rgb
+                };
                 self.write_add_device(out);
-                Event::None
+                if !png_offered {
+                    Event::PngNotOffered
+                } else {
+                    Event::None
+                }
             }
             ("ADD-DEVICE", Some(Status::Ok)) => {
                 self.state = LinkState::Registered;
@@ -194,7 +313,7 @@ impl Session {
             ("KEY-STATE", None) => {
                 let control = msg
                     .get("CONTROLID")
-                    .and_then(|id| Control::from_id(id.raw()));
+                    .and_then(|id| Control::from_id(id.raw(), self.config.layout));
                 match (control, msg.get("BITMAP")) {
                     (Some(control), Some(bitmap)) => Event::Draw {
                         control,
@@ -242,7 +361,8 @@ impl Session {
     /// One encoder detent. Companion runs a rotate action once per message whatever the step
     /// count, so each detent is its own `KEY-ROTATE` (KTD23). Dropped unless registered.
     pub fn rotate(&mut self, clockwise: bool, out: &mut LineWriter<'_>) {
-        if self.is_registered() {
+        // A bench surface has no encoder control.
+        if self.is_registered() && self.config.layout == Layout::Normal {
             out.command("KEY-ROTATE")
                 .quoted("DEVICEID", self.ids.device_id())
                 .quoted("CONTROLID", Control::Encoder.id())
@@ -252,15 +372,41 @@ impl Session {
     }
 
     fn write_add_device(&self, out: &mut LineWriter<'_>) {
-        let mut manifest = [0u8; base64::encoded_len(MANIFEST_JSON.len())];
-        let manifest = base64::encode(MANIFEST_JSON.as_bytes(), &mut manifest).unwrap_or("");
+        let layout = self.config.layout;
         out.command("ADD-DEVICE")
             .quoted("DEVICEID", self.ids.device_id())
             .quoted("SERIAL", self.ids.serial())
             .quoted("PRODUCT_NAME", PRODUCT_NAME)
-            .quoted("LAYOUT_MANIFEST", manifest)
-            .end();
+            .quoted_base64("LAYOUT_MANIFEST", |sink| write_manifest(layout, sink));
+        if self.format == ImageFormat::Png {
+            out.quoted("BITMAP_FORMAT", "png");
+        }
+        out.end();
     }
+}
+
+/// The layout manifest's JSON. A bench surface's is built here rather than stored: 32 keys
+/// make about 1.6 KB of it.
+fn write_manifest(layout: Layout, sink: &mut Base64Sink<'_, '_>) {
+    let keys = layout.bench_keys();
+    if keys == 0 {
+        sink.write(MANIFEST_JSON.as_bytes());
+        return;
+    }
+    sink.write(br#"{"stylePresets":{"default":{"bitmap":{"w":128,"h":128}}},"controls":{"#);
+    for n in 0..keys {
+        let (row, column) = (b'0' + n / BENCH_COLUMNS, b'0' + n % BENCH_COLUMNS);
+        if n > 0 {
+            sink.write(b",");
+        }
+        sink.write(&[b'"', row, b'/', column]);
+        sink.write(br#"":{"row":"#);
+        sink.write(&[row]);
+        sink.write(br#","column":"#);
+        sink.write(&[column]);
+        sink.write(br#","stylePreset":"default"}"#);
+    }
+    sink.write(b"}}");
 }
 
 /// Formats `n` in decimal into `buf`.
@@ -384,7 +530,7 @@ mod tests {
         assert_eq!(msg.command, "ADD-DEVICE");
         assert_eq!(msg.get("DEVICEID").unwrap().raw(), "opendeck-a0b7650102ff");
         assert_eq!(msg.get("SERIAL").unwrap().raw(), "opendeck:a0b7650102ff");
-        assert_eq!(msg.get("BITMAP_FORMAT"), None);
+        assert_eq!(msg.get("BITMAP_FORMAT").map(|v| v.raw()), Some("png"));
         assert_eq!(h.session.state(), LinkState::Handshake);
     }
 
@@ -630,5 +776,135 @@ mod tests {
         h.line(4_000, r#"KEY-PRESS OK DEVICEID="d""#);
         assert_eq!(h.tick(8_999).0, "None");
         assert_eq!(h.tick(9_000).0, "Close");
+    }
+
+    fn bench(layout: Layout) -> Harness {
+        let mut h = Harness::new();
+        h.session.set_config(SurfaceConfig {
+            layout,
+            draw: false,
+        });
+        h
+    }
+
+    const CAPS_ALL: &str =
+        r#"CAPS SUBSCRIPTIONS=0 NONSQUARE=1 BITMAP_FORMATS="rgb,png,webp" ROTARY_AMOUNT=1"#;
+
+    /// The `ADD-DEVICE` line sent in answer to `caps`, with the event it raised.
+    fn add_device(h: &mut Harness, caps: &str) -> (String, String) {
+        h.session.connected(0);
+        let (event, sent) = h.line(0, caps);
+        assert_eq!(sent.len(), 1, "{sent:?}");
+        (event, sent[0].clone())
+    }
+
+    #[test]
+    fn bench_manifests_have_rows_of_eight_keys_and_no_encoder() {
+        for (layout, keys, last) in [(Layout::Bench16, 16, "1/7"), (Layout::Bench32, 32, "3/7")] {
+            let mut h = bench(layout);
+            let (_, add) = add_device(&mut h, CAPS_ALL);
+            let json = decode_manifest(&add);
+            assert_eq!(json.matches("\"row\"").count(), keys, "{json}");
+            assert!(!json.contains("encoder"), "{json}");
+            assert!(
+                json.starts_with(r#"{"stylePresets":{"default":{"bitmap":{"w":128,"h":128}}},"controls":{"0/0":{"row":0,"column":0,"stylePreset":"default"},"#),
+                "{json}"
+            );
+            let row = last.as_bytes()[0] - b'0';
+            assert!(
+                json.ends_with(&format!(
+                    r#""{last}":{{"row":{row},"column":7,"stylePreset":"default"}}}}}}"#
+                )),
+                "{json}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_32_key_add_device_fits_a_4_kb_writer() {
+        let mut h = bench(Layout::Bench32);
+        h.session.connected(0);
+        let mut buf = [0u8; 4096];
+        let mut w = LineWriter::new(&mut buf);
+        h.session
+            .line(0, &Message::parse(CAPS_ALL.as_bytes()).unwrap(), &mut w);
+        let len = w.bytes().expect("fits").len();
+        assert!(len > 1024, "outgrows the old 1 KB buffer: {len}");
+    }
+
+    #[test]
+    fn png_is_requested_whenever_caps_offers_it() {
+        let mut h = bench(Layout::Normal);
+        let (event, add) = add_device(&mut h, CAPS_ALL);
+        assert_eq!(event, "None");
+        let msg = Message::parse(add.as_bytes()).unwrap();
+        assert_eq!(msg.get("BITMAP_FORMAT").map(|v| v.raw()), Some("png"));
+        assert_eq!(h.session.image_format(), ImageFormat::Png);
+
+        let mut h = bench(Layout::Normal);
+        for caps in [
+            r#"CAPS NONSQUARE=1 BITMAP_FORMATS="rgb""#,
+            "CAPS NONSQUARE=1",
+        ] {
+            let (event, add) = add_device(&mut h, caps);
+            assert_eq!(event, "PngNotOffered", "{caps}");
+            assert_eq!(
+                Message::parse(add.as_bytes()).unwrap().get("BITMAP_FORMAT"),
+                None,
+                "{caps}"
+            );
+            assert_eq!(h.session.image_format(), ImageFormat::Rgb, "{caps}");
+            h.session.closed(0);
+        }
+    }
+
+    #[test]
+    fn bench_key_state_maps_to_its_index_within_the_layout() {
+        let line = r#"KEY-STATE DEVICEID="d" CONTROLID="2/5" BITMAP="AAAA""#;
+        let mut h = bench(Layout::Bench32);
+        h.register(0);
+        assert_eq!(
+            h.line(1, line).0,
+            r#"Draw { control: Bench(21), bitmap: "AAAA" }"#
+        );
+        let mut h = bench(Layout::Bench16);
+        h.register(0);
+        assert!(
+            h.line(1, line).0.starts_with("Ignored"),
+            "2/5 is not on a 16-key surface"
+        );
+        // The PoC's IDs mean other controls on a bench surface.
+        assert_eq!(
+            h.line(1, r#"KEY-STATE DEVICEID="d" CONTROLID="0/3" BITMAP="AAAA""#)
+                .0,
+            r#"Draw { control: Bench(3), bitmap: "AAAA" }"#
+        );
+    }
+
+    #[test]
+    fn bench_presses_use_their_own_control_id_and_rotation_sends_nothing() {
+        let mut h = bench(Layout::Bench32);
+        h.register(0);
+        let key = Layout::Bench32.physical(Control::KeyB).unwrap();
+        assert_eq!(
+            h.key(key, true),
+            vec![r#"KEY-PRESS DEVICEID="opendeck-a0b7650102ff" CONTROLID="0/1" PRESSED=1"#]
+        );
+        assert!(h.rotate(true).is_empty());
+        assert_eq!(Layout::Bench32.physical(Control::Encoder), None);
+        assert_eq!(Layout::Normal.physical(Control::KeyB), Some(Control::KeyB));
+    }
+
+    #[test]
+    fn a_config_change_applies_at_the_next_registration() {
+        let mut h = Harness::new();
+        h.register(0);
+        h.session.set_config(SurfaceConfig {
+            layout: Layout::Bench16,
+            draw: true,
+        });
+        h.session.closed(10);
+        let (_, add) = add_device(&mut h, CAPS_ALL);
+        assert_eq!(decode_manifest(&add).matches("\"row\"").count(), 16);
     }
 }

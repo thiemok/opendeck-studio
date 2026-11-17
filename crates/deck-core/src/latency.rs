@@ -15,56 +15,39 @@ pub const SUMMARY_EVERY: usize = 20;
 
 pub struct RoundTrips {
     pending: [Option<u64>; 3],
+    samples: Samples,
+}
+
+/// The last [`WINDOW`] samples in milliseconds, with a summary due every `every` new ones.
+pub struct Samples {
     samples: [u32; WINDOW],
     len: usize,
     next: usize,
     since_summary: usize,
+    every: usize,
 }
 
-impl Default for RoundTrips {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl RoundTrips {
-    pub const fn new() -> Self {
+impl Samples {
+    pub const fn new(every: usize) -> Self {
         Self {
-            pending: [None; 3],
             samples: [0; WINDOW],
             len: 0,
             next: 0,
             since_summary: 0,
+            every,
         }
     }
 
-    /// A press or rotation for `control` went out.
-    pub fn sent(&mut self, control: Control, now_ms: u64) {
-        let pending = &mut self.pending[slot(control)];
-        match *pending {
-            Some(sent) if now_ms.saturating_sub(sent) <= MAX_AGE_MS => {}
-            _ => *pending = Some(now_ms),
-        }
-    }
-
-    /// `control` finished drawing; returns the round trip in milliseconds when it answers a send.
-    pub fn drawn(&mut self, control: Control, now_ms: u64) -> Option<u32> {
-        let sent = self.pending[slot(control)].take()?;
-        let elapsed = now_ms.saturating_sub(sent);
-        if elapsed > MAX_AGE_MS {
-            return None;
-        }
-        let ms = u32::try_from(elapsed).unwrap_or(u32::MAX);
+    pub fn push(&mut self, ms: u32) {
         self.samples[self.next] = ms;
         self.next = (self.next + 1) % WINDOW;
         self.len = (self.len + 1).min(WINDOW);
         self.since_summary += 1;
-        Some(ms)
     }
 
-    /// True once per [`SUMMARY_EVERY`] samples.
+    /// True once per `every` samples.
     pub fn summary_due(&mut self) -> bool {
-        if self.since_summary < SUMMARY_EVERY {
+        if self.since_summary < self.every {
             return false;
         }
         self.since_summary = 0;
@@ -93,11 +76,65 @@ impl RoundTrips {
     }
 }
 
-fn slot(control: Control) -> usize {
+impl Default for RoundTrips {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RoundTrips {
+    pub const fn new() -> Self {
+        Self {
+            pending: [None; 3],
+            samples: Samples::new(SUMMARY_EVERY),
+        }
+    }
+
+    /// A press or rotation for `control` went out. Bench keys are timed per page change
+    /// instead (`pagetime`), so they are ignored here.
+    pub fn sent(&mut self, control: Control, now_ms: u64) {
+        let Some(slot) = slot(control) else {
+            return;
+        };
+        let pending = &mut self.pending[slot];
+        match *pending {
+            Some(sent) if now_ms.saturating_sub(sent) <= MAX_AGE_MS => {}
+            _ => *pending = Some(now_ms),
+        }
+    }
+
+    /// `control` finished drawing; returns the round trip in milliseconds when it answers a send.
+    pub fn drawn(&mut self, control: Control, now_ms: u64) -> Option<u32> {
+        let sent = self.pending[slot(control)?].take()?;
+        let elapsed = now_ms.saturating_sub(sent);
+        if elapsed > MAX_AGE_MS {
+            return None;
+        }
+        let ms = u32::try_from(elapsed).unwrap_or(u32::MAX);
+        self.samples.push(ms);
+        Some(ms)
+    }
+
+    /// True once per [`SUMMARY_EVERY`] samples.
+    pub fn summary_due(&mut self) -> bool {
+        self.samples.summary_due()
+    }
+
+    pub fn median(&self) -> Option<u32> {
+        self.samples.median()
+    }
+
+    pub fn max(&self) -> Option<u32> {
+        self.samples.max()
+    }
+}
+
+fn slot(control: Control) -> Option<usize> {
     match control {
-        Control::KeyA => 0,
-        Control::KeyB => 1,
-        Control::Encoder => 2,
+        Control::KeyA => Some(0),
+        Control::KeyB => Some(1),
+        Control::Encoder => Some(2),
+        Control::Bench(_) => None,
     }
 }
 
@@ -119,6 +156,13 @@ mod tests {
         rt.sent(Control::KeyA, 100);
         assert_eq!(rt.drawn(Control::KeyB, 150), None);
         assert_eq!(rt.drawn(Control::KeyA, 170), Some(70));
+    }
+
+    #[test]
+    fn bench_keys_are_not_timed_here() {
+        let mut rt = RoundTrips::new();
+        rt.sent(Control::Bench(0), 100);
+        assert_eq!(rt.drawn(Control::Bench(0), 150), None);
     }
 
     #[test]

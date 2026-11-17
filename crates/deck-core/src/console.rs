@@ -3,16 +3,28 @@
 //! ```text
 //! host <hostname-or-ip>[:port]   set the Companion host (port defaults to 16622)
 //! host clear                     forget the host
-//! show                           print the saved host
+//! bench off|16|32 [draw]         register the normal surface or a 16/32-key bench surface
+//! show                           print the saved host and the surface
 //! help                           list the commands
 //! ```
+//!
+//! `bench` is for measuring page changes (THI-76, THI-85) and is not saved.
 
 use crate::config::{DEFAULT_PORT, valid_host};
+use crate::session::Layout;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command<'a> {
-    SetHost { host: &'a str, port: u16 },
+    SetHost {
+        host: &'a str,
+        port: u16,
+    },
     ClearHost,
+    /// Register this layout; on a bench surface `draw` also draws every key's image.
+    Bench {
+        layout: Layout,
+        draw: bool,
+    },
     Show,
     Help,
 }
@@ -29,6 +41,8 @@ pub enum ConsoleError {
     BadHost,
     /// The port is not a number from 1 to 65535.
     BadPort,
+    /// `bench` without `off`, `16` or `32`, or with something other than `draw` after it.
+    BadBench,
     /// Not a command; the reply suggests `help`.
     Unknown,
 }
@@ -42,12 +56,14 @@ impl ConsoleError {
             Self::TooManyArgs => "too many arguments; try `help`",
             Self::BadHost => "host must be a hostname or IPv4 address of at most 63 characters",
             Self::BadPort => "port must be a number from 1 to 65535",
+            Self::BadBench => "usage: bench off | bench 16 [draw] | bench 32 [draw]",
             Self::Unknown => "unknown command; try `help`",
         }
     }
 }
 
-pub const HELP: &str = "commands: host <hostname-or-ip>[:port] | host clear | show | help";
+pub const HELP: &str = "commands: host <hostname-or-ip>[:port] | host clear | \
+bench off|16|32 [draw] | show | help";
 
 pub fn parse(line: &str) -> Result<Command<'_>, ConsoleError> {
     let mut words = line.split_whitespace();
@@ -55,7 +71,11 @@ pub fn parse(line: &str) -> Result<Command<'_>, ConsoleError> {
         return Err(ConsoleError::Empty);
     };
     let arg = words.next();
-    if words.next().is_some() {
+    let extra = words.next();
+    if command == "bench" {
+        return parse_bench(arg, extra, words.next());
+    }
+    if extra.is_some() {
         return Err(ConsoleError::TooManyArgs);
     }
     match (command, arg) {
@@ -67,6 +87,29 @@ pub fn parse(line: &str) -> Result<Command<'_>, ConsoleError> {
         ("show" | "help", Some(_)) => Err(ConsoleError::TooManyArgs),
         _ => Err(ConsoleError::Unknown),
     }
+}
+
+/// `bench off`, `bench 16 [draw]` or `bench 32 [draw]`.
+fn parse_bench(
+    size: Option<&str>,
+    option: Option<&str>,
+    extra: Option<&str>,
+) -> Result<Command<'static>, ConsoleError> {
+    if extra.is_some() {
+        return Err(ConsoleError::BadBench);
+    }
+    let layout = match size {
+        Some("off") if option.is_none() => Layout::Normal,
+        Some("16") => Layout::Bench16,
+        Some("32") => Layout::Bench32,
+        _ => return Err(ConsoleError::BadBench),
+    };
+    let draw = match option {
+        None => false,
+        Some("draw") => true,
+        Some(_) => return Err(ConsoleError::BadBench),
+    };
+    Ok(Command::Bench { layout, draw })
 }
 
 /// `<host>` or `<host>:<port>`.
@@ -147,6 +190,33 @@ mod tests {
         assert_eq!(parse("show"), Ok(Command::Show));
         assert_eq!(parse("help"), Ok(Command::Help));
         assert_eq!(parse("show extra"), Err(ConsoleError::TooManyArgs));
+    }
+
+    #[test]
+    fn bench_commands_parse() {
+        for (line, layout, draw) in [
+            ("bench off", Layout::Normal, false),
+            ("bench 16", Layout::Bench16, false),
+            ("bench 32 draw", Layout::Bench32, true),
+            (" bench  16  draw ", Layout::Bench16, true),
+        ] {
+            assert_eq!(parse(line), Ok(Command::Bench { layout, draw }), "{line}");
+        }
+    }
+
+    #[test]
+    fn bad_bench_commands_are_errors() {
+        for line in [
+            "bench",
+            "bench 8",
+            "bench 32 fast",
+            "bench off draw",
+            "bench 16 draw x",
+        ] {
+            assert_eq!(parse(line), Err(ConsoleError::BadBench), "{line}");
+        }
+        assert!(ConsoleError::BadBench.reason().contains("bench 32"));
+        assert!(HELP.contains("bench off|16|32 [draw]"));
     }
 
     #[test]

@@ -6,6 +6,7 @@
 //! white-on-black text legible.
 
 use crate::bitmap::{self, BitmapError};
+use crate::png::{self, PngError, PngWorkspace};
 use crate::session::{OLED_HEIGHT, OLED_WIDTH};
 
 const WIDTH: usize = OLED_WIDTH as usize;
@@ -73,6 +74,18 @@ impl MonoFrame {
             self.set(i % WIDTH, i / WIDTH, luma([r, g, b]) >= THRESHOLD);
         }
         Ok(())
+    }
+}
+
+impl MonoFrame {
+    /// Replaces the frame with a Companion `png` bitmap (THI-76). Unlike
+    /// [`Self::fill_from_rgb`], a fault found partway leaves the rows before it changed.
+    pub fn fill_from_png(&mut self, data_url: &str, ws: &mut PngWorkspace) -> Result<(), PngError> {
+        png::decode(data_url, OLED_WIDTH, OLED_HEIGHT, ws, |y, rgb| {
+            for (x, px) in rgb.as_chunks::<3>().0.iter().enumerate() {
+                self.set(x, usize::from(y), luma(*px) >= THRESHOLD);
+            }
+        })
     }
 }
 
@@ -164,6 +177,26 @@ mod tests {
         );
         assert!(frame.get(10, 10));
         assert_eq!(all(&frame).iter().filter(|&&b| b != 0).count(), 1);
+    }
+
+    #[test]
+    fn png_gives_the_same_frame_as_rgb() {
+        let png_bytes = include_bytes!("../tests/fixtures/companion-128x64-oled.png");
+        let rgb = include_bytes!("../tests/fixtures/companion-128x64-oled.rgb");
+        let mut url = vec![0u8; base64::encoded_len(png_bytes.len())];
+        let url = format!(
+            "{}{}",
+            png::DATA_URL_PREFIX,
+            base64::encode(png_bytes, &mut url).unwrap()
+        );
+        let mut from_rgb = MonoFrame::new();
+        from_rgb.fill_from_rgb(&encode(rgb)).unwrap();
+        let mut from_png = MonoFrame::new();
+        from_png
+            .fill_from_png(&url, &mut PngWorkspace::new())
+            .unwrap();
+        assert_eq!(all(&from_png), all(&from_rgb));
+        assert!(all(&from_png).iter().any(|&b| b != 0), "not a blank image");
     }
 
     #[test]

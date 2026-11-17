@@ -13,6 +13,8 @@
 //!
 //! A blank (erased, `0xFF`) region, another version or a bad CRC all read as "no host".
 
+use crate::crc32::crc32;
+
 pub const DEFAULT_PORT: u16 = 16622;
 pub const MAX_HOST_LEN: usize = 63;
 pub const RECORD_LEN: usize = 75;
@@ -79,22 +81,6 @@ impl HostConfig {
         let port = u16::from_le_bytes([rec[6], rec[7]]);
         Self::new(core::str::from_utf8(host).ok()?, port)
     }
-}
-
-/// CRC-32 (IEEE 802.3, reflected), bitwise: the record is 71 bytes, so a table isn't worth it.
-fn crc32(data: &[u8]) -> u32 {
-    let mut crc = !0u32;
-    for &byte in data {
-        crc ^= u32::from(byte);
-        for _ in 0..8 {
-            crc = if crc & 1 != 0 {
-                (crc >> 1) ^ 0xEDB8_8320
-            } else {
-                crc >> 1
-            };
-        }
-    }
-    !crc
 }
 
 /// Loads, saves and clears the record at the start of a NOR flash region (the

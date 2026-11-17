@@ -8,3 +8,9 @@ publish = false
 
 [dependencies]
 embedded-storage = "0.3.2"
+# Inflate for PNG key images (THI-76). Without default features it needs neither std nor alloc.
+miniz_oxide = { version = "0.8.9", default-features = false }
+
+[dev-dependencies]
+# Builds zlib streams for the PNG decoder tests.
+miniz_oxide = { version = "0.8.9", features = ["with-alloc"] }

@@ -4,9 +4,10 @@
 //! ROM routine at the same 115200 baud, so log output and replies share the port.
 
 use crate::config_store::ConfigStore;
-use crate::{HOST, set_host};
+use crate::{HOST, SURFACE, set_host, set_surface};
 use deck_core::config::HostConfig;
 use deck_core::console::{self, Command, ConsoleError};
+use deck_core::session::{Layout, SurfaceConfig};
 use embassy_time::{Duration, Timer};
 use esp_hal::Async;
 use esp_hal::uart::UartRx;
@@ -75,12 +76,36 @@ fn run(text: &str, store: &mut ConfigStore) {
             }
             Err(e) => println!("could not clear the host: {e:?}"),
         },
-        Ok(Command::Show) => match HOST.lock(|h| h.get()) {
-            Some(config) => println!("host {}:{}", config.host(), config.port),
-            None => println!("no host set"),
-        },
+        Ok(Command::Bench { layout, draw }) => {
+            set_surface(SurfaceConfig { layout, draw });
+            println!(
+                "surface: {}; re-registering",
+                Describe(SURFACE.lock(|s| s.get()))
+            );
+        }
+        Ok(Command::Show) => {
+            match HOST.lock(|h| h.get()) {
+                Some(config) => println!("host {}:{}", config.host(), config.port),
+                None => println!("no host set"),
+            }
+            println!("surface: {}", Describe(SURFACE.lock(|s| s.get())));
+        }
         Ok(Command::Help) => println!("{}", console::HELP),
         Err(ConsoleError::Empty) => {}
         Err(e) => println!("{}", e.reason()),
+    }
+}
+
+/// The surface in console words, e.g. `bench 32 draw`.
+pub struct Describe(pub SurfaceConfig);
+
+impl core::fmt::Display for Describe {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let SurfaceConfig { layout, draw } = self.0;
+        match layout {
+            Layout::Normal => f.write_str("normal"),
+            _ if draw => write!(f, "bench {} draw", layout.bench_keys()),
+            _ => write!(f, "bench {}", layout.bench_keys()),
+        }
     }
 }

@@ -34,7 +34,11 @@ Page 1, row 0 then holds:
 | `0/1` key B | blue, `B <count>` | `count - 1` | – |
 | `0/2` encoder | black, `Vol <count>` | `count = 0` | right `+1`, left `-1` |
 
-All three controls show `count`, so any input visibly changes every image. `companion-config/make-page.ts` generates the import files: `node companion-config/make-page.ts > companion-config/fake-deck-page.companionconfig`, and with `--hardware` for `hardware-deck-page.companionconfig`.
+All three controls show `count`, so any input visibly changes every image. `companion-config/make-page.ts` generates the import files: `node companion-config/make-page.ts > companion-config/fake-deck-page.companionconfig`, with `--hardware` for `hardware-deck-page.companionconfig`, and with `--bench 1` / `--bench 2` for the two bench pages below.
+
+### Bench pages (THI-76, THI-85)
+
+`bench-page-1.companionconfig` and `bench-page-2.companionconfig` fill all 32 positions of the 8×4 grid for measuring page changes with the firmware's `bench 16|32` surface. Import the first with **Replace page 1 with imported page**, then the second as **[ Insert new page ]** so it becomes page 2. On both pages `0/0` is Companion's page up and `0/1` its page down. Every other button has its own colour and `P<page> <row>/<column>` text, and each one changes between the pages, so a page change redraws every key. A 16-key surface shows rows 0–1 of the same pages. Pressing `0/0` and `0/1` alternately moves between the two pages and never onto an empty page 3.
 
 ### Companion MCP (optional)
 
