@@ -63,6 +63,7 @@ Transcribed below. "From top" and "from left" are from the board edges in the dr
 Not on the drawing:
 
 - **Which box is the screen.** The 35.05 × 22.85 glass outline is the 1.3" screen; the product photos show the display's flex cable leaving the bottom edge of that box (the notch in the drawing's bottom edge). The case cuts its display window to this outline. The drawn 27.64 × 18.92 inner box is narrower than a 1.3" 128 × 64 panel's active area (typically about 29.4 × 14.7), so it is not used.
+- **Open: exact active display area.** Neither the drawing nor the listing gives the lit pixel area's size or its position on the glass. Measure it on the real module before a case cuts the window to the visible pixels instead of the whole glass. This is not urgent; the mock-ups use the glass outline.
 - **Knob.** EC11 with a knurled ("plum blossom") shaft, 15 mm long, 20 detents (vendor text). The supplied knob is about 14 mm across, estimated from the product photo.
 - The FPC tail of the display folds round the bottom edge (the notch in the drawing's bottom edge).
 
