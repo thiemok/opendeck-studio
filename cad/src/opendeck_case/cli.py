@@ -14,30 +14,29 @@ from .export import export_part
 from .layout import LayoutError
 from .params import Bed
 from .preview import assembly_png, part_png
-from .printsets import PRINT_SETS, build_variant, default_out_dir
+from .printsets import PRINT_SETS, build_joint_fit, build_variant, default_out_dir
 
 
 def _build(set_name: str, out: Path, bed: Bed | None) -> dict:
     report = {"set": set_name, "variants": []}
-    for name in PRINT_SETS[set_name].variants:
+    print_set = PRINT_SETS[set_name]
+    groups = []
+    for name in print_set.variants:
         try:
-            built = build_variant(name, bed)
+            groups.append(build_variant(name, bed))
         except LayoutError as err:
             report["variants"].append({"variant": name, "error": str(err), "checks": {}})
-            continue
-        lay = built.layout
+    if print_set.joint_fit:
+        groups.append(build_joint_fit(bed))
+    for group in groups:
         entry = {
-            "variant": name,
-            "outer_mm": [round(lay.outer_width, 2), round(lay.outer_depth, 2)],
-            "checks": {
-                "outline": checks.outline_matches(built.tiles, lay),
-                "joints_dial_right": checks.joints_clear(built.tiles),
-                "joints_dial_left": checks.joints_clear([built.side_on_left, built.tiles[0]]),
-            },
+            "variant": group.name,
+            "outer_mm": list(group.outer_mm) if group.outer_mm else None,
+            "checks": {name: check() for name, check in group.checks.items()},
             "parts": [],
         }
-        for bp in built.parts:
-            stem = f"{name}-{bp.name}"
+        for bp in group.parts:
+            stem = f"{group.name}-{bp.name}"
             files = export_part(bp.part, out, stem)
             files["png"] = part_png(bp.part, out / f"{stem}.png", stem)
             size = bp.part.bounding_box().size
@@ -48,12 +47,12 @@ def _build(set_name: str, out: Path, bed: Bed | None) -> dict:
                     "size_mm": [round(size.X, 2), round(size.Y, 2), round(size.Z, 2)],
                     "files": {k: v.name for k, v in files.items()},
                     "checks": {
-                        "fits_bed": checks.fits_bed(bp.part, lay.params.bed),
+                        "fits_bed": checks.fits_bed(bp.part, group.bed),
                         "watertight": checks.watertight(files["stl"]),
                     },
                 }
             )
-        assembly_png(built.tiles, out / f"{name}-assembly.png", name)
+        assembly_png(group.assembly, out / f"{group.name}-assembly.png", group.name)
         report["variants"].append(entry)
     report["ok"] = all(
         "error" not in v
@@ -74,8 +73,8 @@ def _print_report(report: dict, out: Path) -> None:
         if "error" in v:
             print(f"{v['variant']}: FAILED  {v['error']}")
             continue
-        w, d = v["outer_mm"]
-        print(f"{v['variant']}: assembled {w:g} x {d:g} mm  {_status(v['checks'])}")
+        size = "assembled {:g} x {:g} mm".format(*v["outer_mm"]) if v["outer_mm"] else "test pieces"
+        print(f"{v['variant']}: {size}  {_status(v['checks'])}")
         for p in v["parts"]:
             x, y, z = p["size_mm"]
             size = f"{x:7.1f} x {y:6.1f} x {z:5.1f} mm"

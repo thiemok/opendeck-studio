@@ -6,13 +6,20 @@ from dataclasses import replace
 import pytest
 
 from opendeck_case.layout import LayoutError, layout
-from opendeck_case.params import P1S, Bed, block_4x8, strip_1x16
+from opendeck_case.params import P1S, Bed, block_2x8, block_4x8, strip_1x16
 
 
 def test_block_4x8_outline_and_tiles():
     lay = layout(block_4x8())
     assert lay.outer_width == pytest.approx(295.2)
     assert lay.outer_depth == pytest.approx(136.0)
+    assert [t.kind for t in lay.tiles] == ["keys", "side"]
+
+
+def test_block_2x8_outline_and_tiles():
+    lay = layout(block_2x8())
+    assert lay.outer_width == pytest.approx(295.2)
+    assert lay.outer_depth == pytest.approx(80.0)
     assert [t.kind for t in lay.tiles] == ["keys", "side"]
 
 

@@ -5,6 +5,7 @@ just the tiles together and joint fit can be checked by intersecting them.
 """
 
 import math
+from dataclasses import replace
 
 from build123d import (
     Axis,
@@ -21,7 +22,8 @@ from build123d import (
 )
 
 from .joints import sockets, tabs
-from .layout import Layout, Tile
+from .layout import Layout, Tile, layout
+from .params import DeckParams
 
 def label_text(lay: Layout) -> str:
     p = lay.params
@@ -135,3 +137,25 @@ def wedge(lay: Layout, angle: float) -> Part:
 def wedge_for_print(lay: Layout, angle: float) -> Part:
     """The wedge laid on its side: the slot profile builds straight up, no supports."""
     return Rot(Y=90) * wedge(lay, angle)
+
+
+# A joint-fit coupon: the deck's own dovetail on two small blocks, one per
+# side of a seam, sized to one border band pair (both joints of a seam).
+COUPON_SEAM = 20.0
+
+
+def coupon_layout(params: DeckParams) -> Layout:
+    """A one-column, keyless layout: its joint centres are the deck's."""
+    return layout(replace(params, name="coupon", columns=1, rows=0))
+
+
+def joint_fit_coupon(params: DeckParams, clearance: float) -> tuple[Part, Part]:
+    """A tab block and a socket block cut with `clearance` per side, labelled."""
+    lay = coupon_layout(replace(params, joint_clearance=clearance))
+    p = lay.params
+    w, d = COUPON_SEAM, lay.outer_depth
+    tab = Box(w, d, p.thickness, align=None) + tabs(lay, COUPON_SEAM, 1)
+    socket = Pos(COUPON_SEAM, 0, 0) * Box(w, d, p.thickness, align=None)
+    socket -= sockets(lay, COUPON_SEAM, 1)
+    label = Pos(COUPON_SEAM + w / 2 + 2, d / 2) * Text(f"{clearance:.2f}", font_size=4)
+    return tab, _engrave(socket, Sketch() + [label], lay)

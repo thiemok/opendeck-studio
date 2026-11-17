@@ -57,7 +57,9 @@ class DeckParams:
     tab_neck: float = 5.0
     tab_head: float = 8.0
     tab_depth: float = 6.0
-    joint_clearance: float = 0.2
+    # Per side. 0.2 printed loose on the P1S (THI-82 test print); the joint-fit
+    # print set tries 0.00 to 0.15 to settle it.
+    joint_clearance: float = 0.1
 
     # Tilt wedges (KTD5).
     wedge_width: float = 20.0
@@ -78,9 +80,14 @@ def block_4x8() -> DeckParams:
     return DeckParams(name="block_4x8", columns=8, rows=4)
 
 
+def block_2x8() -> DeckParams:
+    """The 2x8 block: 16 keys, as wide as the 4x8 but half as deep."""
+    return DeckParams(name="block_2x8", columns=8, rows=2)
+
+
 def strip_1x16() -> DeckParams:
     """The 1×16 strip: 16 keys."""
     return DeckParams(name="strip_1x16", columns=16, rows=1)
 
 
-VARIANTS = {"block_4x8": block_4x8, "strip_1x16": strip_1x16}
+VARIANTS = {"block_4x8": block_4x8, "strip_1x16": strip_1x16, "block_2x8": block_2x8}

@@ -34,6 +34,9 @@ The build also prints the report as a table. It exits non-zero if any check fail
 |---|---|---|
 | 4×8 block | 295 × 136 mm | `keys` (1), `side` (1), `wedge-8` (2), `wedge-15` (2) |
 | 1×16 strip | 495 × 52 mm | `keys-1` (1), `keys-2` (1), `side` (1), `wedge-8` (3), `wedge-15` (3) |
+| 2×8 block | 295 × 80 mm | `keys` (1), `side` (1), `wedge-8` (2), `wedge-15` (2) |
+
+`mise run case -- build thi-82-2x8` builds only the 2×8 block plus the joint-fit pieces, for the second test round.
 
 Each plate is 4 mm thick. Keycap outlines (22.00 × 25.30 mm) and the module outline, OLED window and dial are engraved 0.6 mm deep. The first key-area tile has the deck name and size embossed on its front border. The OLED window and dial positions are estimates, not measured.
 
@@ -47,7 +50,7 @@ Import the `.3mf` files into Bambu Studio. Each part is already oriented for pri
 - The side tile (OLED and dial) fits either end of the key area. As printed it goes on the right. Turn it round 180° to put the dial on the left.
 - Wedges clip onto a tile's back edge and hold it at 8° or 15°. Use one per tile, because the joints keep the tiles in line but not level with each other.
 
-If the joints are too tight or too loose, change `joint_clearance` (default 0.2 mm per side) in `src/opendeck_case/params.py` and rebuild.
+If the joints are too tight or too loose, change `joint_clearance` in `src/opendeck_case/params.py` and rebuild. The default is 0.1 mm per side; 0.2 printed loose on the P1S. To find the right value without reprinting plates, print the `joint-fit` pieces from `thi-82-2x8`: four identical tab blocks and four socket blocks engraved with their clearance (0.00, 0.05, 0.10, 0.15 mm). Push each tab into a socket and pick the tightest one that still goes together by hand.
 
 ## Layout
 

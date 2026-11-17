@@ -22,6 +22,7 @@ def test_thi82_builds_and_every_check_passes(thi82):
     assert names == {
         "block_4x8": ["keys", "side", "wedge-8", "wedge-15"],
         "strip_1x16": ["keys-1", "keys-2", "side", "wedge-8", "wedge-15"],
+        "block_2x8": ["keys", "side", "wedge-8", "wedge-15"],
     }
     for variant in report["variants"]:
         assert all(variant["checks"].values())
@@ -59,7 +60,7 @@ def test_wedges_are_exported_lying_on_their_side(thi82):
 
 def test_a_failed_check_exits_non_zero(tmp_path, capsys, monkeypatch):
     monkeypatch.setattr("opendeck_case.checks.fits_bed", lambda part, bed: False)
-    code = main(["build", "thi-82", "--out", str(tmp_path)])
+    code = main(["build", "thi-82-2x8", "--out", str(tmp_path)])
     assert code == 1
     assert json.loads((tmp_path / "report.json").read_text())["ok"] is False
     assert "FAILED fits_bed" in capsys.readouterr().out
@@ -77,3 +78,15 @@ def test_unknown_print_set_lists_the_known_ones(tmp_path, capsys):
     code = main(["build", "nope", "--out", str(tmp_path)])
     assert code != 0
     assert "thi-82" in capsys.readouterr().err
+
+
+def test_2x8_set_has_the_deck_and_the_joint_fit_pieces(tmp_path):
+    code = main(["build", "thi-82-2x8", "--out", str(tmp_path)])
+    report = json.loads((tmp_path / "report.json").read_text())
+    assert code == 0 and report["ok"] is True
+    groups = {v["variant"]: v for v in report["variants"]}
+    assert set(groups) == {"block_2x8", "joint-fit"}
+    assert groups["block_2x8"]["outer_mm"] == pytest.approx([295.2, 80.0])
+    fit = {p["name"]: p["quantity"] for p in groups["joint-fit"]["parts"]}
+    assert fit == {"tab": 4, "socket-0.00": 1, "socket-0.05": 1, "socket-0.10": 1, "socket-0.15": 1}
+    assert all(groups["joint-fit"]["checks"].values())

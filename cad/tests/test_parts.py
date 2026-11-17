@@ -9,8 +9,11 @@ from build123d import Box, Pos, Rot
 
 from opendeck_case.joints import joint_profiles, tabs
 from opendeck_case.layout import layout
-from opendeck_case.params import block_4x8, strip_1x16
+from opendeck_case.params import block_2x8, block_4x8, strip_1x16
 from opendeck_case.parts import (
+    COUPON_SEAM,
+    coupon_layout,
+    joint_fit_coupon,
     deck_tiles,
     label_text,
     plate_slab,
@@ -135,3 +138,13 @@ def test_wedges_one_per_tile(block, strip):
 def test_label_names_the_assembled_size(block, strip):
     assert label_text(block[0]) == "4x8 block  295 x 136 mm"
     assert label_text(strip[0]) == "1x16 strip  495 x 52 mm"
+    assert label_text(layout(block_2x8())) == "2x8 block  295 x 80 mm"
+
+
+@pytest.mark.parametrize("clearance", [0.0, 0.05, 0.1, 0.15])
+def test_joint_fit_coupon_has_the_named_clearance(clearance):
+    tab, socket = joint_fit_coupon(block_2x8(), clearance)
+    assert overlap(tab, socket) < TOL
+    probe = tabs(coupon_layout(block_2x8()), COUPON_SEAM, 1)
+    assert probe.distance_to(socket) == pytest.approx(clearance, abs=0.02)
+    assert len(tab.solids()) == 1 and len(socket.solids()) == 1
