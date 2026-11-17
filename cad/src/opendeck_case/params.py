@@ -38,12 +38,24 @@ class DeckParams:
     # 1.3" OLED + EC11 module board (docs/notes/oled-encoder-module.md).
     module: tuple[float, float] = (65.2, 35.1)
     side_margin: float = 3.0
-    # Rough marks on the module footprint. Estimates, not measured: the OLED
-    # window sits towards one end of the board and the dial towards the other.
-    oled_window: tuple[float, float] = (30.0, 16.0)
-    oled_offset: float = -14.0  # window centre, from the board centre along x
-    dial_diameter: float = 14.0
-    dial_offset: float = 20.0  # dial centre, from the board centre along x
+    # Module features from the vendor's dimension drawing, transcribed in
+    # docs/notes/oled-encoder-module.md (Mechanical drawing). Offsets are from
+    # the board centre: +x towards the encoder, +y towards the header.
+    # Display window: the drawn 35.05 x 22.85 glass outline, which covers the
+    # 1.3" panel; its flex cable folds round the glass's bottom edge.
+    oled_window: tuple[float, float] = (35.05, 22.85)
+    oled_offset: tuple[float, float] = (-10.92, 0.04)
+    encoder_bushing: float = 7.0  # EC11 shaft bushing diameter
+    encoder_offset: tuple[float, float] = (20.84, -0.09)
+    module_button: tuple[float, float] = (6.10, 3.63)  # tactile switch body
+    module_button_offsets: tuple[tuple[float, float], ...] = ((20.84, 11.81), (20.84, -11.79))
+    module_mount_hole: float = 3.4  # M3 clearance
+    module_mount_offsets: tuple[tuple[float, float], ...] = (
+        (-29.58, 14.67),
+        (29.45, 14.62),
+        (-29.50, -14.55),
+        (29.48, -14.37),
+    )
 
     # Plate, marks and label (KTD3).
     thickness: float = 4.0

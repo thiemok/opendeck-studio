@@ -8,7 +8,7 @@ What the 1.3" OLED + EC11 rotary encoder module is, how it is built, and the val
 
 - Sold as "OLED display screen with EC11 rotary encoder combination module, IIC interface, 1.3 inches / 0.96 inches" (brand Javino/Liludin, Weinuo Module Store). The deck uses the **1.3" white** version.
 - Source: <https://de.aliexpress.com/item/1005010470649235.html>. The product description has the interface description and schematics; they are only shown after expanding it.
-- Board 65.2 × 35.1 mm, four M3 mounting holes.
+- Board 65.2 × 35.1 mm (vendor's manual measurement; the drawing says 64.90 × 35.03), four M3 mounting holes. Full dimensions under [Mechanical drawing](#mechanical-drawing).
 
 ## Hardware, from the vendor schematics
 
@@ -37,6 +37,34 @@ What the 1.3" OLED + EC11 rotary encoder module is, how it is built, and the val
 | 9 | CON | CONFIRM | CONFIRM (`KEY1`) |
 
 The front silkscreen lists the pins in the reverse order (CON first, VCC last). Wiring to the Feather is in [deck-wiring.md](deck-wiring.md#oled-encoder-module).
+
+## Mechanical drawing
+
+The vendor's dimension drawing, from the product description (copied 2026-11-17). It is the 1.3" board: large glass, BACK top right, CONFIRM bottom right, encoder between them. Top view, header side up.
+
+![OLED/encoder module dimension drawing](oled-encoder-module-drawing.png)
+
+Transcribed below. "From top" and "from left" are from the board edges in the drawing's orientation (header at the top). Offsets are from the board centre (32.45, 17.515), with +x right and +y towards the header; the case model (`cad/src/opendeck_case/params.py`) uses these offsets.
+
+| Feature | Size (mm) | Position on the drawing | Offset from board centre (mm) |
+|---|---|---|---|
+| Board | 64.90 × 35.03 | | |
+| M3 hole, top left | M3 | 2.87 from left, 2.85 from top | (−29.58, +14.67) |
+| M3 hole, top right | M3 | 3.00 from right, 2.90 from top | (+29.45, +14.62) |
+| M3 hole, bottom left | M3 | 2.95 from left, 2.97 from bottom | (−29.50, −14.55) |
+| M3 hole, bottom right | M3 | 2.97 from right, 3.15 from bottom | (+29.48, −14.37) |
+| OLED glass outline | 35.05 × 22.85 | 4.01 from left, 6.05 from top | (−10.92, +0.04) |
+| OLED inner box (as drawn) | 27.64 × 18.92 | centred in the glass width, 9.98 from top | (−10.92, −1.93) |
+| Encoder shaft bushing (EC11) | Ø 7.00 | 11.61 from right, 17.60 from top | (+20.84, −0.09) |
+| BACK button body | 6.10 × 3.63 | 14.66 from right to its left edge, 3.89 from top | (+20.84, +11.81) |
+| CONFIRM button body | 6.10 × 3.63 | 14.66 from right to its left edge, 7.54 from bottom to its top | (+20.84, −11.79) |
+| Header J1, 9 pins, 2.54 mm pitch | | pin 1 (CON) 11.38 from left, 1.93 from top; VCC (square pad) at the right end | pin 1 (−21.07, +15.59) |
+
+Not on the drawing:
+
+- **Which box is the screen.** The 35.05 × 22.85 glass outline is the 1.3" screen; the product photos show the display's flex cable leaving the bottom edge of that box (the notch in the drawing's bottom edge). The case cuts its display window to this outline. The drawn 27.64 × 18.92 inner box is narrower than a 1.3" 128 × 64 panel's active area (typically about 29.4 × 14.7), so it is not used.
+- **Knob.** EC11 with a knurled ("plum blossom") shaft, 15 mm long, 20 detents (vendor text). The supplied knob is about 14 mm across, estimated from the product photo.
+- The FPC tail of the display folds round the bottom edge (the notch in the drawing's bottom edge).
 
 ## How the firmware uses it
 

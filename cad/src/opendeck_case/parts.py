@@ -86,9 +86,17 @@ def side_tile(lay: Layout) -> Part:
 
     mx, my = lay.module_centre
     part = _engrave(part, Sketch() + [Pos(mx, my) * _ring(*p.module, p.groove_width)], lay)
+    c = p.hole_clearance
+    bw, bh = p.module_button
+
+    def at(offset: tuple[float, float]) -> Pos:
+        return Pos(mx + offset[0], my + offset[1])
+
     holes = Sketch() + [
-        Pos(mx + p.oled_offset, my) * Rectangle(*p.oled_window),
-        Pos(mx + p.dial_offset, my) * Circle(p.dial_diameter / 2),
+        at(p.oled_offset) * Rectangle(*p.oled_window),
+        at(p.encoder_offset) * Circle(p.encoder_bushing / 2 + c),
+        *(at(o) * Rectangle(bw + 2 * c, bh + 2 * c) for o in p.module_button_offsets),
+        *(at(o) * Circle(p.module_mount_hole / 2) for o in p.module_mount_offsets),
     ]
     return _cut_through(part, holes, lay)
 

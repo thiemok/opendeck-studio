@@ -46,8 +46,14 @@ def test_each_tile_is_one_solid_of_the_expected_volume(deck, request):
     lay, tiles = request.getfixturevalue(deck)
     p = lay.params
     kw, kd = (c + 2 * p.hole_clearance for c in p.keycap)
-    ow, od = p.oled_window
-    side_holes = ow * od + math.pi * (p.dial_diameter / 2) ** 2
+    c = p.hole_clearance
+    bw, bh = p.module_button
+    side_holes = (
+        p.oled_window[0] * p.oled_window[1]
+        + math.pi * (p.encoder_bushing / 2 + c) ** 2
+        + len(p.module_button_offsets) * (bw + 2 * c) * (bh + 2 * c)
+        + len(p.module_mount_offsets) * math.pi * (p.module_mount_hole / 2) ** 2
+    )
     for tile, part in zip(lay.tiles, tiles):
         assert len(part.solids()) == 1
         bb = part.bounding_box()
@@ -161,8 +167,16 @@ def test_keys_display_and_dial_are_open_through_the_plate(deck, request):
     p = lay.params
     mx, my = lay.module_centre
     side = tiles[-1]
-    for x, y in [(mx + p.oled_offset, my), (mx + p.dial_offset, my)]:
-        assert not side.is_inside((x, y, p.thickness / 2))
+    module_holes = [
+        p.oled_offset,
+        p.encoder_offset,
+        *p.module_button_offsets,
+        *p.module_mount_offsets,
+    ]
+    for dx, dy in module_holes:
+        assert not side.is_inside((mx + dx, my + dy, p.thickness / 2))
+    # The holes follow the vendor drawing: the encoder sits between the buttons.
+    assert p.module_button_offsets[0][0] == p.encoder_offset[0]
     for x, y in lay.keycap_centres:
         tile = next(t for t, part in zip(lay.tiles, tiles) if t.x0 < x < t.x1)
         part = tiles[lay.tiles.index(tile)]
