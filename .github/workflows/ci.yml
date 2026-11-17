@@ -1,5 +1,5 @@
-# Checks every PR to main and every push to main. The three job names are the
-# required checks in the main ruleset (.github/rulesets/main.json): rename a job
+# Checks every PR to main and every push to main. deck-core, firmware and
+# fake-deck are the required checks in the main ruleset (.github/rulesets/main.json): rename a job
 # only together with that file, or PRs wait on a check that never reports.
 # No path filters: a required check skipped by a filter blocks the merge.
 name: CI
@@ -134,3 +134,28 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run typecheck
+
+  # Case models (cad/). Not a required check in the ruleset.
+  case:
+    runs-on: ubuntu-24.04
+    env:
+      # Only uv is needed; uv brings its own pinned Python.
+      MISE_DISABLE_TOOLS: rust,cargo:espup,cargo:espflash,cargo:esp-generate
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # uv's managed Python and package cache. The key changes with the lockfile.
+      - name: Cache uv
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/uv
+            ~/.local/share/uv/python
+          key: uv-${{ runner.os }}-${{ hashFiles('cad/uv.lock', 'cad/.python-version') }}
+
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        with:
+          version: 2026.11.8
+          cache_key_prefix: mise-v1-case
+
+      - run: mise run case-test
