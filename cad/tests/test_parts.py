@@ -101,7 +101,9 @@ def test_wedge_props_the_plate_at_its_angle(block, angle):
     assert len(w.solids()) == 1
     assert overlap(w, slab) < TOL
     assert w.distance_to(slab) == pytest.approx(p.joint_clearance, abs=0.02)
+    size = w.bounding_box().size
     assert w.bounding_box().max.Z >= lay.wedge_rise(angle)
+    assert size.Y >= p.wedge_foot * size.Z - 0.01  # a foot long enough to stand on
 
 
 def test_15_degree_wedge_for_the_block_rises_about_35_mm(block):

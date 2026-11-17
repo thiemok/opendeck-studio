@@ -127,8 +127,9 @@ def wedge(lay: Layout, angle: float) -> Part:
     p = lay.params
     a = math.radians(angle)
     d, t = lay.outer_depth, p.thickness
-    front = (d - p.wedge_grip) * math.cos(a)
     back = d * math.cos(a) + p.wedge_wall
     top = d * math.sin(a) + t * math.cos(a) + p.wedge_wall
+    # Reach forward under the plate so the wedge stands without tipping.
+    front = min((d - p.wedge_grip) * math.cos(a), back - p.wedge_foot * top)
     block = Pos(0, front, 0) * Box(p.wedge_width, back - front, top, align=None)
     return block - plate_slab(lay, angle, grow=p.joint_clearance)

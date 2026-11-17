@@ -62,6 +62,7 @@ class DeckParams:
     wedge_width: float = 20.0
     wedge_grip: float = 8.0
     wedge_wall: float = 3.0
+    wedge_foot: float = 0.6  # footprint depth as a share of the wedge height
     wedge_angles: tuple[float, ...] = (8.0, 15.0)
 
     bed: Bed = P1S
