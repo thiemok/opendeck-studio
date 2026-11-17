@@ -1,4 +1,4 @@
-# Pinned tools for the opendeck firmware and its host-tested core crate.
+# Pinned tools for the opendeck firmware, its host-tested core crate and the case models.
 # mise runs via shims here, so run commands through `mise exec --` or `mise run`.
 # First setup: `mise trust && mise install && mise run esp-toolchain`.
 
@@ -7,7 +7,19 @@ rust = { version = "1.100.0", components = "clippy,rustfmt" }
 "cargo:espup" = "0.19.0"
 "cargo:espflash" = "4.7.0"
 "cargo:esp-generate" = "2.0.0"
+# Case models (cad/): uv brings its own pinned Python and the locked build123d.
+uv = "0.13.8"
 
 [tasks.esp-toolchain]
 description = "Install the pinned esp Xtensa toolchain into the default rustup home"
 run = "mkdir -p {{config_root}}/.esp && espup install --toolchain-version 1.100.0.0 --targets esp32 --export-file {{config_root}}/.esp/export-esp.sh"
+
+[tasks.case]
+description = "Build a case print set, e.g. `mise run case -- build thi-82` (output in cad/out/)"
+dir = "{{config_root}}/cad"
+run = "uv run --locked case"
+
+[tasks.case-test]
+description = "Run the case-model tests"
+dir = "{{config_root}}/cad"
+run = "uv run --locked pytest"
