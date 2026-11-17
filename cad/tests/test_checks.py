@@ -2,9 +2,11 @@
 
 from build123d import Box, Pos
 
-from opendeck_case.checks import fits_bed, joints_clear, watertight
+from opendeck_case.checks import fits_bed, joints_clear, outline_matches, watertight
 from opendeck_case.export import export_part
-from opendeck_case.params import P1S
+from opendeck_case.layout import layout
+from opendeck_case.params import P1S, block_4x8
+from opendeck_case.parts import deck_tiles
 
 
 def test_fits_bed_allows_turning_the_part():
@@ -24,3 +26,11 @@ def test_watertight_reads_the_exported_mesh(tmp_path):
     assert watertight(stl)
     stl.write_text("solid broken\nendsolid broken\n")
     assert not watertight(stl)
+
+
+def test_outline_matches_catches_a_missing_or_shifted_tile():
+    lay = layout(block_4x8())
+    tiles = deck_tiles(lay)
+    assert outline_matches(tiles, lay)
+    assert not outline_matches(tiles[:-1], lay)
+    assert not outline_matches([tiles[0], Pos(5, 0, 0) * tiles[1]], lay)

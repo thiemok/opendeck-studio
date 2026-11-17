@@ -47,6 +47,7 @@ class DeckParams:
 
     # Plate, marks and label (KTD3).
     thickness: float = 4.0
+    corner_radius: float = 4.0  # the side tile's two outer corners
     engrave_depth: float = 0.6
     groove_width: float = 0.8
     emboss_height: float = 0.6

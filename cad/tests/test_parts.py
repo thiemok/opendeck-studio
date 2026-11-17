@@ -5,6 +5,8 @@ import math
 
 import pytest
 
+from build123d import Box, Pos, Rot
+
 from opendeck_case.joints import joint_profiles, tabs
 from opendeck_case.layout import layout
 from opendeck_case.params import block_4x8, strip_1x16
@@ -43,9 +45,9 @@ def test_each_tile_is_one_solid_of_the_expected_volume(deck, request):
     for tile, part in zip(lay.tiles, tiles):
         assert len(part.solids()) == 1
         bb = part.bounding_box()
-        assert (bb.min.Z, bb.max.Z) == pytest.approx((0, p.thickness + p.emboss_height), abs=0.01) or (
-            (bb.min.Z, bb.max.Z) == pytest.approx((0, p.thickness), abs=0.01)
-        )
+        # Only the first key-area tile carries the embossed label.
+        top = p.thickness + (p.emboss_height if part is tiles[0] else 0)
+        assert (bb.min.Z, bb.max.Z) == pytest.approx((0, top), abs=0.01)
         nominal = tile.width * lay.outer_depth * p.thickness
         # Grooves, sockets, tabs and the label shift it by a few percent at most.
         assert part.volume == pytest.approx(nominal, rel=0.03)
@@ -104,6 +106,19 @@ def test_wedge_props_the_plate_at_its_angle(block, angle):
     size = w.bounding_box().size
     assert w.bounding_box().max.Z >= lay.wedge_rise(angle)
     assert size.Y >= p.wedge_foot * size.Z - 0.01  # a foot long enough to stand on
+
+
+@pytest.mark.parametrize("deck", ["strip", "block"])
+@pytest.mark.parametrize("angle", [8, 15])
+def test_wedge_lip_stays_on_the_back_border(deck, angle, request):
+    lay, _ = request.getfixturevalue(deck)
+    p = lay.params
+    # Everything of the wedge above the plate's top surface, in plate coordinates.
+    flat = Rot(X=-angle) * wedge(lay, angle)
+    above = flat & (Pos(-100, -100, p.thickness) * Box(400, 400, 200, align=None))
+    covered = lay.outer_depth - above.bounding_box().min.Y
+    assert covered <= p.wedge_grip + 0.01
+    assert covered < p.border  # never over a keycap mark
 
 
 def test_15_degree_wedge_for_the_block_rises_about_35_mm(block):

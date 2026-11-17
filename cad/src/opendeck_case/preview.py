@@ -42,6 +42,6 @@ def part_png(part: Part, path: Path, title: str) -> Path:
 
 
 def assembly_png(parts: list[Part], path: Path, title: str) -> Path:
-    assembly = Compound(children=list(parts))
+    assembly = Compound(list(parts))
     size = assembly.bounding_box().size
     return _views(assembly, path, f"{title} assembled  ({size.X:.1f} x {size.Y:.1f} mm)")

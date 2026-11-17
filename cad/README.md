@@ -39,7 +39,7 @@ Each plate is 4 mm thick. Keycap outlines (22.00 × 25.30 mm) and the module out
 
 ### Print
 
-Import the `.3mf` files into Bambu Studio. Each part already lies flat at the origin. The plates print flat, engraved side up. The wedges print well lying on one of their flat sides. No supports are needed.
+Import the `.3mf` files into Bambu Studio. Each part is already oriented for printing at the origin: the plates lie flat, engraved side up, and the wedges lie on their side so the slot builds straight up. No supports are needed.
 
 ### Assemble
 

@@ -64,19 +64,22 @@ def _build(set_name: str, out: Path, bed: Bed | None) -> dict:
     return report
 
 
+def _status(checks: dict[str, bool]) -> str:
+    failed = [name for name, ok in checks.items() if not ok]
+    return "FAILED " + ", ".join(failed) if failed else "ok"
+
+
 def _print_report(report: dict, out: Path) -> None:
     for v in report["variants"]:
         if "error" in v:
             print(f"{v['variant']}: FAILED  {v['error']}")
             continue
         w, d = v["outer_mm"]
-        failed = [k for k, ok in v["checks"].items() if not ok]
-        print(f"{v['variant']}: assembled {w:g} x {d:g} mm  {'FAILED ' + ', '.join(failed) if failed else 'ok'}")
+        print(f"{v['variant']}: assembled {w:g} x {d:g} mm  {_status(v['checks'])}")
         for p in v["parts"]:
             x, y, z = p["size_mm"]
-            bad = [k for k, ok in p["checks"].items() if not ok]
-            status = "FAILED " + ", ".join(bad) if bad else "ok"
-            print(f"  {p['quantity']}x {p['name']:<10} {x:7.1f} x {y:6.1f} x {z:5.1f} mm  {status}")
+            size = f"{x:7.1f} x {y:6.1f} x {z:5.1f} mm"
+            print(f"  {p['quantity']}x {p['name']:<10} {size}  {_status(p['checks'])}")
     print(f"{'all checks passed' if report['ok'] else 'CHECKS FAILED'}; output in {out}")
 
 

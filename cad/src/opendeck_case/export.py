@@ -10,9 +10,7 @@ ANGULAR_TOLERANCE = 0.1
 
 
 def at_origin(part: Part) -> Part:
-    """The part moved so its bounding box starts at the origin."""
-    low = part.bounding_box().min
-    return Pos(-low.X, -low.Y, -low.Z) * part
+    return Pos(-part.bounding_box().min) * part
 
 
 def export_part(part: Part, out_dir: Path, stem: str) -> dict[str, Path]:

@@ -6,8 +6,12 @@ x runs left to right from the key area's left edge, y from the front edge.
 
 import math
 from dataclasses import dataclass
+from typing import Literal
 
 from .params import DeckParams
+
+
+TileKind = Literal["keys", "side"]
 
 
 class LayoutError(ValueError):
@@ -17,14 +21,13 @@ class LayoutError(ValueError):
 @dataclass(frozen=True)
 class Tile:
     name: str
-    kind: str  # "keys" or "side"
+    kind: TileKind
     x0: float
     x1: float
     first_column: int | None = None
     last_column: int | None = None
-    tab_right: bool = False  # a dovetail tab sticks out past x1
-    tab_left: bool = False  # a dovetail tab sticks out before x0
-    print_width: float = 0.0  # x extent on the bed, tabs included
+    tab_right: bool = False
+    print_width: float = 0.0
 
     @property
     def width(self) -> float:
@@ -42,6 +45,14 @@ class Layout:
     outer_depth: float
 
     @property
+    def key_tiles(self) -> tuple[Tile, ...]:
+        return self.tiles[:-1]
+
+    @property
+    def side_tile(self) -> Tile:
+        return self.tiles[-1]
+
+    @property
     def joint_centres(self) -> tuple[float, float]:
         """Joints sit in the top and bottom border bands (KTD4)."""
         b = self.params.border
@@ -49,7 +60,7 @@ class Layout:
 
     @property
     def module_centre(self) -> tuple[float, float]:
-        side = self.tiles[-1]
+        side = self.side_tile
         return ((side.x0 + side.x1) / 2, self.outer_depth / 2)
 
     def wedge_rise(self, angle: float) -> float:
@@ -73,14 +84,13 @@ def layout(p: DeckParams) -> Layout:
             f"usable {usable_d:g} mm, and no column cut can shorten it"
         )
 
-    def column_x(c: int) -> float:  # left edge of column c's pitch cell
+    def column_x(c: int) -> float:
         return p.border + c * pitch_x
 
     # Fewest key-area tiles that fit, cut only in the gap between columns.
     for n in range(1, p.columns + 1):
         bounds = [0] + [round(p.columns * i / n) for i in range(1, n)] + [p.columns]
         edges = [0.0] + [column_x(c) for c in bounds[1:-1]] + [key_w]
-        # Inner tiles carry a tab per internal seam on their right side.
         widths = [
             edges[i + 1] - edges[i] + (p.tab_depth if i < n - 1 else 0) for i in range(n)
         ]
@@ -119,7 +129,6 @@ def layout(p: DeckParams) -> Layout:
             kind="side",
             x0=key_w,
             x1=key_w + p.side_width,
-            tab_left=True,
             print_width=side_print,
         )
     )

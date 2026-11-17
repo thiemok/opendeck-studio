@@ -7,7 +7,7 @@ from build123d import Part
 
 from .layout import Layout, layout
 from .params import VARIANTS, Bed, DeckParams
-from .parts import deck_tiles, side_tile_on_left, wedge
+from .parts import deck_tiles, side_tile_on_left, wedge_for_print
 
 
 @dataclass(frozen=True)
@@ -37,7 +37,7 @@ class BuiltPart:
 class BuiltVariant:
     params: DeckParams
     layout: Layout
-    tiles: list[Part]  # assembled, dial on the right
+    tiles: list[Part]
     side_on_left: Part
     parts: list[BuiltPart]
 
@@ -50,7 +50,7 @@ def build_variant(name: str, bed: Bed | None = None) -> BuiltVariant:
     tiles = deck_tiles(lay)
     parts = [BuiltPart(t.name, part) for t, part in zip(lay.tiles, tiles)]
     parts += [
-        BuiltPart(f"wedge-{angle:g}", wedge(lay, angle), quantity=lay.wedge_count())
+        BuiltPart(f"wedge-{angle:g}", wedge_for_print(lay, angle), quantity=lay.wedge_count())
         for angle in params.wedge_angles
     ]
     return BuiltVariant(params, lay, tiles, side_tile_on_left(lay, tiles[-1]), parts)

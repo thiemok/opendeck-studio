@@ -23,13 +23,10 @@ from build123d import (
 from .joints import sockets, tabs
 from .layout import Layout, Tile
 
-_NAMES = {"block_4x8": "{rows}x{columns} block", "strip_1x16": "{rows}x{columns} strip"}
-
-
 def label_text(lay: Layout) -> str:
     p = lay.params
-    name = _NAMES.get(p.name, p.name).format(rows=p.rows, columns=p.columns)
-    return f"{name}  {lay.outer_width:.0f} x {lay.outer_depth:.0f} mm"
+    shape = "strip" if p.rows == 1 else "block"
+    return f"{p.rows}x{p.columns} {shape}  {lay.outer_width:.0f} x {lay.outer_depth:.0f} mm"
 
 
 def _ring(width: float, depth: float, groove: float) -> Sketch:
@@ -50,17 +47,14 @@ def _plate(tile: Tile, lay: Layout) -> Part:
 
 def key_tile(lay: Layout, index: int) -> Part:
     p = lay.params
-    key_tiles = [t for t in lay.tiles if t.kind == "keys"]
-    tile = key_tiles[index]
+    tile = lay.key_tiles[index]
     part = _plate(tile, lay)
     if tile.tab_right:
         part += tabs(lay, tile.x1, 1)
-    if index > 0:
-        part -= sockets(lay, tile.x0, 1)  # the previous tile's tabs
-    if index == 0:
-        part -= sockets(lay, 0.0, 1)  # side tile turned round to the left
-    if index == len(key_tiles) - 1:
-        part -= sockets(lay, lay.key_area_width, -1)  # side tile on the right
+    # The left end takes the previous tile's tabs, or the side tile turned round.
+    part -= sockets(lay, tile.x0, 1)
+    if index == len(lay.key_tiles) - 1:
+        part -= sockets(lay, lay.key_area_width, -1)
 
     kw, kd = p.keycap
     keycaps = [
@@ -80,10 +74,10 @@ def key_tile(lay: Layout, index: int) -> Part:
 def side_tile(lay: Layout) -> Part:
     """The OLED/dial tile, in its dial-on-the-right position."""
     p = lay.params
-    tile = lay.tiles[-1]
+    tile = lay.side_tile
     part = _plate(tile, lay)
     far_corners = part.edges().filter_by(Axis.Z).group_by(Axis.X)[-1]
-    part = fillet(far_corners, radius=4.0)
+    part = fillet(far_corners, radius=p.corner_radius)
     part += tabs(lay, tile.x0, -1)
 
     mx, my = lay.module_centre
@@ -106,8 +100,7 @@ def side_tile_on_left(lay: Layout, side: Part) -> Part:
 
 def deck_tiles(lay: Layout) -> list[Part]:
     """Every tile in assembled position, left to right, dial on the right."""
-    n = sum(t.kind == "keys" for t in lay.tiles)
-    return [key_tile(lay, i) for i in range(n)] + [side_tile(lay)]
+    return [key_tile(lay, i) for i in range(len(lay.key_tiles))] + [side_tile(lay)]
 
 
 def plate_slab(lay: Layout, angle: float, grow: float = 0.0) -> Part:
@@ -132,4 +125,13 @@ def wedge(lay: Layout, angle: float) -> Part:
     # Reach forward under the plate so the wedge stands without tipping.
     front = min((d - p.wedge_grip) * math.cos(a), back - p.wedge_foot * top)
     block = Pos(0, front, 0) * Box(p.wedge_width, back - front, top, align=None)
-    return block - plate_slab(lay, angle, grow=p.joint_clearance)
+    block -= plate_slab(lay, angle, grow=p.joint_clearance)
+    # Above the plate, keep only the lip over the back border (wedge_grip).
+    reach = 500.0
+    above = Pos(-50, -reach, t) * Box(p.wedge_width + 100, reach + d - p.wedge_grip, reach, align=None)
+    return block - Rot(X=angle) * above
+
+
+def wedge_for_print(lay: Layout, angle: float) -> Part:
+    """The wedge laid on its side: the slot profile builds straight up, no supports."""
+    return Rot(Y=90) * wedge(lay, angle)

@@ -30,7 +30,7 @@ jobs:
     env:
       # Only rust is needed here. Disabling the rest also stops `mise exec`
       # from auto-installing (and building from source) the firmware tools.
-      MISE_DISABLE_TOOLS: cargo:espup,cargo:espflash,cargo:esp-generate
+      MISE_DISABLE_TOOLS: cargo:espup,cargo:espflash,cargo:esp-generate,uv
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -63,7 +63,7 @@ jobs:
       # espflash and esp-generate aren't needed to build and take ~2.5 min to
       # build from source; disabling them keeps `mise exec`/`mise run` from
       # auto-installing them.
-      MISE_DISABLE_TOOLS: cargo:espflash,cargo:esp-generate
+      MISE_DISABLE_TOOLS: cargo:espflash,cargo:esp-generate,uv
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
