@@ -50,6 +50,9 @@ class DeckParams:
     corner_radius: float = 4.0  # the side tile's two outer corners
     engrave_depth: float = 0.6
     groove_width: float = 0.8
+    # Keys, the OLED window and the dial are cut through the plate so the
+    # parts can be tried in place; keycap holes get this much room per side.
+    hole_clearance: float = 0.3
     emboss_height: float = 0.6
     label_size: float = 5.0
 

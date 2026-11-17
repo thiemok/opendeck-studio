@@ -40,6 +40,10 @@ def _engrave(part: Part, marks: Sketch, lay: Layout) -> Part:
     return part - Pos(0, 0, p.thickness - p.engrave_depth) * extrude(marks, p.engrave_depth + 1)
 
 
+def _cut_through(part: Part, holes: Sketch, lay: Layout) -> Part:
+    return part - Pos(0, 0, -1) * extrude(holes, lay.params.thickness + 2)
+
+
 def _plate(tile: Tile, lay: Layout) -> Part:
     p = lay.params
     return Pos(tile.x0, 0, 0) * Box(
@@ -58,13 +62,11 @@ def key_tile(lay: Layout, index: int) -> Part:
     if index == len(lay.key_tiles) - 1:
         part -= sockets(lay, lay.key_area_width, -1)
 
-    kw, kd = p.keycap
+    kw, kd = (c + 2 * p.hole_clearance for c in p.keycap)
     keycaps = [
-        Pos(x, y) * _ring(kw, kd, p.groove_width)
-        for x, y in lay.keycap_centres
-        if tile.x0 < x < tile.x1
+        Pos(x, y) * Rectangle(kw, kd) for x, y in lay.keycap_centres if tile.x0 < x < tile.x1
     ]
-    part = _engrave(part, Sketch() + keycaps, lay)
+    part = _cut_through(part, Sketch() + keycaps, lay)
 
     if index == 0:
         text = Text(label_text(lay), font_size=p.label_size)
@@ -83,14 +85,12 @@ def side_tile(lay: Layout) -> Part:
     part += tabs(lay, tile.x0, -1)
 
     mx, my = lay.module_centre
-    g = p.groove_width
-    marks = Sketch() + [
-        Pos(mx, my) * _ring(*p.module, g),
-        Pos(mx + p.oled_offset, my) * _ring(*p.oled_window, g),
-        Pos(mx + p.dial_offset, my)
-        * (Circle(p.dial_diameter / 2) - Circle(p.dial_diameter / 2 - g)),
+    part = _engrave(part, Sketch() + [Pos(mx, my) * _ring(*p.module, p.groove_width)], lay)
+    holes = Sketch() + [
+        Pos(mx + p.oled_offset, my) * Rectangle(*p.oled_window),
+        Pos(mx + p.dial_offset, my) * Circle(p.dial_diameter / 2),
     ]
-    return _engrave(part, marks, lay)
+    return _cut_through(part, holes, lay)
 
 
 def side_tile_on_left(lay: Layout, side: Part) -> Part:

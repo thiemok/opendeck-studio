@@ -45,13 +45,18 @@ def overlap(a, b) -> float:
 def test_each_tile_is_one_solid_of_the_expected_volume(deck, request):
     lay, tiles = request.getfixturevalue(deck)
     p = lay.params
+    kw, kd = (c + 2 * p.hole_clearance for c in p.keycap)
+    ow, od = p.oled_window
+    side_holes = ow * od + math.pi * (p.dial_diameter / 2) ** 2
     for tile, part in zip(lay.tiles, tiles):
         assert len(part.solids()) == 1
         bb = part.bounding_box()
         # Only the first key-area tile carries the embossed label.
         top = p.thickness + (p.emboss_height if part is tiles[0] else 0)
         assert (bb.min.Z, bb.max.Z) == pytest.approx((0, top), abs=0.01)
-        nominal = tile.width * lay.outer_depth * p.thickness
+        keys = sum(tile.x0 < x < tile.x1 for x, _ in lay.keycap_centres)
+        holes = keys * kw * kd if tile.kind == "keys" else side_holes
+        nominal = (tile.width * lay.outer_depth - holes) * p.thickness
         # Grooves, sockets, tabs and the label shift it by a few percent at most.
         assert part.volume == pytest.approx(nominal, rel=0.03)
 
@@ -148,3 +153,20 @@ def test_joint_fit_coupon_has_the_named_clearance(clearance):
     probe = tabs(coupon_layout(block_2x8()), COUPON_SEAM, 1)
     assert probe.distance_to(socket) == pytest.approx(clearance, abs=0.02)
     assert len(tab.solids()) == 1 and len(socket.solids()) == 1
+
+
+@pytest.mark.parametrize("deck", ["strip", "block"])
+def test_keys_display_and_dial_are_open_through_the_plate(deck, request):
+    lay, tiles = request.getfixturevalue(deck)
+    p = lay.params
+    mx, my = lay.module_centre
+    side = tiles[-1]
+    for x, y in [(mx + p.oled_offset, my), (mx + p.dial_offset, my)]:
+        assert not side.is_inside((x, y, p.thickness / 2))
+    for x, y in lay.keycap_centres:
+        tile = next(t for t, part in zip(lay.tiles, tiles) if t.x0 < x < t.x1)
+        part = tiles[lay.tiles.index(tile)]
+        assert not part.is_inside((x, y, p.thickness / 2))
+        # ...and the plate is still there between neighbouring keys.
+        gap = x + p.pitch[0] / 2 if x + p.pitch[0] < tile.x1 else x - p.pitch[0] / 2
+        assert part.is_inside((gap, y, p.thickness / 2))

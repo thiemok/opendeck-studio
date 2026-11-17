@@ -38,11 +38,11 @@ The build also prints the report as a table. It exits non-zero if any check fail
 
 `mise run case -- build thi-82-2x8` builds only the 2×8 block plus the joint-fit pieces, for the second test round.
 
-Each plate is 4 mm thick. Keycap outlines (22.00 × 25.30 mm) and the module outline, OLED window and dial are engraved 0.6 mm deep. The first key-area tile has the deck name and size embossed on its front border. The OLED window and dial positions are estimates, not measured.
+Each plate is 4 mm thick. Every key, the OLED window and the dial are cut through the plate, so the parts can be tried in place: key holes are the 22.00 × 25.30 mm keycap plus `hole_clearance` (0.3 mm) per side, which leaves about 2.4 mm of plate between columns and 2.1 mm between rows. The module board outline is engraved 0.6 mm deep, and the first key-area tile has the deck name and size embossed on its front border. The OLED window (30 × 16 mm) and dial hole (14 mm) and their positions are estimates, not measured: adjust `oled_window`, `oled_offset`, `dial_diameter` and `dial_offset` in `src/opendeck_case/params.py` against the real module.
 
 ### Print
 
-Import the `.3mf` files into Bambu Studio. Each part is already oriented for printing at the origin: the plates lie flat, engraved side up, and the wedges lie on their side so the slot builds straight up. No supports are needed.
+Import the `.3mf` files into Bambu Studio. Each part is already oriented for printing at the origin: the plates lie flat, labelled side up, and the wedges lie on their side so the slot builds straight up. No supports are needed.
 
 ### Assemble
 
