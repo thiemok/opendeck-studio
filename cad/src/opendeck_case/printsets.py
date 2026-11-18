@@ -9,9 +9,10 @@ from build123d import Part
 from . import checks
 from .layout import layout
 from .params import VARIANTS, Bed, DeckParams
-from .parts import deck_tiles, joint_fit_coupon, side_tile_on_left, wedge_for_print
+from .parts import coupon_socket, coupon_tab, deck_tiles, side_tile_on_left, wedge_for_print
 
 JOINT_FIT_CLEARANCES = (0.0, 0.05, 0.1, 0.15)
+JOINT_FIT_VARIANT = "block_2x8"  # whose dovetail the coupons copy
 
 
 @dataclass(frozen=True)
@@ -19,7 +20,7 @@ class PrintSet:
     name: str
     description: str
     variants: tuple[str, ...]
-    joint_fit: bool = False  # add the joint-fit coupons
+    joint_fit: bool = False
 
 
 PRINT_SETS = {
@@ -89,19 +90,19 @@ def build_variant(name: str, bed: Bed | None = None) -> BuiltGroup:
 
 def build_joint_fit(bed: Bed | None = None) -> BuiltGroup:
     """One tab block per clearance and a socket block for each, labelled."""
-    params = _params("block_2x8", bed)
-    pairs = {c: joint_fit_coupon(params, c) for c in JOINT_FIT_CLEARANCES}
-    tab = next(iter(pairs.values()))[0]  # the tab doesn't depend on the clearance
-    parts = [BuiltPart("tab", tab, quantity=len(pairs))]
-    parts += [BuiltPart(f"socket-{c:.2f}", socket) for c, (_, socket) in pairs.items()]
+    params = _params(JOINT_FIT_VARIANT, bed)
+    tab = coupon_tab(params)
+    sockets = {c: coupon_socket(params, c) for c in JOINT_FIT_CLEARANCES}
+    parts = [BuiltPart("tab", tab, quantity=len(sockets))]
+    parts += [BuiltPart(f"socket-{c:.2f}", socket) for c, socket in sockets.items()]
     return BuiltGroup(
         name="joint-fit",
         bed=params.bed,
         parts=parts,
-        assembly=list(pairs[JOINT_FIT_CLEARANCES[0]]),
+        assembly=[tab, sockets[JOINT_FIT_CLEARANCES[0]]],
         checks={
-            f"joint_{c:.2f}": (lambda t=t, s=s: checks.joints_clear([t, s]))
-            for c, (t, s) in pairs.items()
+            f"joint_{c:.2f}": (lambda s=s: checks.joints_clear([tab, s]))
+            for c, s in sockets.items()
         },
     )
 

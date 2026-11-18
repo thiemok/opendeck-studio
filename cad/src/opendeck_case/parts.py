@@ -88,17 +88,13 @@ def side_tile(lay: Layout) -> Part:
     part = _engrave(part, Sketch() + [Pos(mx, my) * _ring(*p.module, p.groove_width)], lay)
     c = p.hole_clearance
     bw, bh = p.module_button
-
-    def at(offset: tuple[float, float]) -> Pos:
-        return Pos(mx + offset[0], my + offset[1])
-
     holes = Sketch() + [
-        at(p.oled_offset) * Rectangle(*p.oled_window),
-        at(p.encoder_offset) * Circle(p.encoder_bushing / 2 + c),
-        *(at(o) * Rectangle(bw + 2 * c, bh + 2 * c) for o in p.module_button_offsets),
-        *(at(o) * Circle(p.module_mount_hole / 2) for o in p.module_mount_offsets),
+        Pos(*p.oled_offset) * Rectangle(*p.oled_window),
+        Pos(*p.encoder_offset) * Circle(p.encoder_bushing / 2 + c),
+        *(Pos(*o) * Rectangle(bw + 2 * c, bh + 2 * c) for o in p.module_button_offsets),
+        *(Pos(*o) * Circle(p.module_mount_hole / 2) for o in p.module_mount_offsets),
     ]
-    return _cut_through(part, holes, lay)
+    return _cut_through(part, Pos(mx, my) * holes, lay)
 
 
 def side_tile_on_left(lay: Layout, side: Part) -> Part:
@@ -147,8 +143,6 @@ def wedge_for_print(lay: Layout, angle: float) -> Part:
     return Rot(Y=90) * wedge(lay, angle)
 
 
-# A joint-fit coupon: the deck's own dovetail on two small blocks, one per
-# side of a seam, sized to one border band pair (both joints of a seam).
 COUPON_SEAM = 20.0
 
 
@@ -157,13 +151,23 @@ def coupon_layout(params: DeckParams) -> Layout:
     return layout(replace(params, name="coupon", columns=1, rows=0))
 
 
+def coupon_tab(params: DeckParams) -> Part:
+    """A block carrying the deck's dovetail tabs; it fits every clearance's socket."""
+    lay = coupon_layout(params)
+    block = Box(COUPON_SEAM, lay.outer_depth, lay.params.thickness, align=None)
+    return block + tabs(lay, COUPON_SEAM, 1)
+
+
+def coupon_socket(params: DeckParams, clearance: float) -> Part:
+    """A block with the matching sockets cut at `clearance` per side, labelled with it."""
+    lay = coupon_layout(replace(params, joint_clearance=clearance))
+    d = lay.outer_depth
+    socket = Pos(COUPON_SEAM, 0, 0) * Box(COUPON_SEAM, d, lay.params.thickness, align=None)
+    socket -= sockets(lay, COUPON_SEAM, 1)
+    label = Pos(1.5 * COUPON_SEAM + 2, d / 2) * Text(f"{clearance:.2f}", font_size=4)
+    return _engrave(socket, Sketch() + [label], lay)
+
+
 def joint_fit_coupon(params: DeckParams, clearance: float) -> tuple[Part, Part]:
     """A tab block and a socket block cut with `clearance` per side, labelled."""
-    lay = coupon_layout(replace(params, joint_clearance=clearance))
-    p = lay.params
-    w, d = COUPON_SEAM, lay.outer_depth
-    tab = Box(w, d, p.thickness, align=None) + tabs(lay, COUPON_SEAM, 1)
-    socket = Pos(COUPON_SEAM, 0, 0) * Box(w, d, p.thickness, align=None)
-    socket -= sockets(lay, COUPON_SEAM, 1)
-    label = Pos(COUPON_SEAM + w / 2 + 2, d / 2) * Text(f"{clearance:.2f}", font_size=4)
-    return tab, _engrave(socket, Sketch() + [label], lay)
+    return coupon_tab(params), coupon_socket(params, clearance)

@@ -17,7 +17,6 @@ from .preview import assembly_png, part_png
 from .printsets import PRINT_SETS, build_joint_fit, build_variant, default_out_dir
 
 
-# What a build writes; a rebuild clears these so no stale part is left to print.
 _GENERATED = ("*.stl", "*.3mf", "*.step", "*.png", "report.json")
 
 
@@ -30,17 +29,15 @@ def _clear_previous_build(out: Path) -> None:
 def _build(set_name: str, out: Path, bed: Bed | None) -> dict:
     report = {"set": set_name, "variants": []}
     print_set = PRINT_SETS[set_name]
+    builders = [(name, lambda name=name: build_variant(name, bed)) for name in print_set.variants]
+    if print_set.joint_fit:
+        builders.append(("joint-fit", lambda: build_joint_fit(bed)))
     groups = []
-    for name in print_set.variants:
+    for name, build in builders:
         try:
-            groups.append(build_variant(name, bed))
+            groups.append(build())
         except LayoutError as err:
             report["variants"].append({"variant": name, "error": str(err), "checks": {}})
-    if print_set.joint_fit:
-        try:
-            groups.append(build_joint_fit(bed))
-        except LayoutError as err:
-            report["variants"].append({"variant": "joint-fit", "error": str(err), "checks": {}})
     for group in groups:
         entry = {
             "variant": group.name,
@@ -86,8 +83,8 @@ def _print_report(report: dict, out: Path) -> None:
         if "error" in v:
             print(f"{v['variant']}: FAILED  {v['error']}")
             continue
-        size = "assembled {:g} x {:g} mm".format(*v["outer_mm"]) if v["outer_mm"] else "test pieces"
-        print(f"{v['variant']}: {size}  {_status(v['checks'])}")
+        summary = "assembled {:g} x {:g} mm".format(*v["outer_mm"]) if v["outer_mm"] else "test pieces"
+        print(f"{v['variant']}: {summary}  {_status(v['checks'])}")
         for p in v["parts"]:
             x, y, z = p["size_mm"]
             size = f"{x:7.1f} x {y:6.1f} x {z:5.1f} mm"

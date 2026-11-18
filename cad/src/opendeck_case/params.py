@@ -62,9 +62,7 @@ class DeckParams:
     corner_radius: float = 4.0  # the side tile's two outer corners
     engrave_depth: float = 0.6
     groove_width: float = 0.8
-    # Keys, the OLED window and the dial are cut through the plate so the
-    # parts can be tried in place; keycap holes get this much room per side.
-    hole_clearance: float = 0.3
+    hole_clearance: float = 0.3  # per side, on the keycap, encoder and button holes
     emboss_height: float = 0.6
     label_size: float = 5.0
 
@@ -73,8 +71,7 @@ class DeckParams:
     tab_head: float = 8.0
     tab_depth: float = 6.0
     # Per side. On the P1S, 0.2 printed loose and 0.00 fit best of the
-    # joint-fit pieces (0.00 to 0.15, THI-82 second round). The wedge slots
-    # use the same clearance.
+    # joint-fit pieces (0.00 to 0.15, THI-82 second round).
     joint_clearance: float = 0.0
 
     # Tilt wedges (KTD5).
