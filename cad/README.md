@@ -50,7 +50,7 @@ Import the `.3mf` files into Bambu Studio. Each part is already oriented for pri
 - The side tile (OLED and dial) fits either end of the key area. As printed it goes on the right. Turn it round 180° to put the dial on the left.
 - Wedges clip onto a tile's back edge and hold it at 8° or 15°. Use one per tile, because the joints keep the tiles in line but not level with each other.
 
-If the joints are too tight or too loose, change `joint_clearance` in `src/opendeck_case/params.py` and rebuild. The default is 0.1 mm per side; 0.2 printed loose on the P1S. To find the right value without reprinting plates, print the `joint-fit` pieces from `thi-82-2x8`: four identical tab blocks and four socket blocks engraved with their clearance (0.00, 0.05, 0.10, 0.15 mm). Push each tab into a socket and pick the tightest one that still goes together by hand.
+If the joints are too tight or too loose, change `joint_clearance` in `src/opendeck_case/params.py` and rebuild. The default is 0 mm per side: on the P1S, 0.2 printed loose and 0.00 fit best of the joint-fit pieces. To check another printer or material without reprinting plates, print the `joint-fit` pieces from `thi-82-2x8`: four identical tab blocks and four socket blocks engraved with their clearance (0.00, 0.05, 0.10, 0.15 mm). Push each tab into a socket and pick the tightest one that still goes together by hand.
 
 ## Layout
 

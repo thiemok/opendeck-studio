@@ -72,9 +72,10 @@ class DeckParams:
     tab_neck: float = 5.0
     tab_head: float = 8.0
     tab_depth: float = 6.0
-    # Per side. 0.2 printed loose on the P1S (THI-82 test print); the joint-fit
-    # print set tries 0.00 to 0.15 to settle it.
-    joint_clearance: float = 0.1
+    # Per side. On the P1S, 0.2 printed loose and 0.00 fit best of the
+    # joint-fit pieces (0.00 to 0.15, THI-82 second round). The wedge slots
+    # use the same clearance.
+    joint_clearance: float = 0.0
 
     # Tilt wedges (KTD5).
     wedge_width: float = 20.0
