@@ -7,3 +7,8 @@
 
 # Build-time Wi-Fi credentials (KTD11)
 /firmware/wifi.env
+
+# Case-model build output and virtualenv (cad/)
+/cad/out/
+/cad/.venv/
+/cad/**/__pycache__/

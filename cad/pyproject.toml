@@ -1,0 +1,33 @@
+[project]
+name = "opendeck-case"
+version = "0.1.0"
+description = "Parametric case models for the opendeck (build123d)"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "build123d==0.13.0",
+    "matplotlib>=3.10",
+    "trimesh>=4.5",
+]
+
+[project.scripts]
+case = "opendeck_case.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=9.1"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/opendeck_case"]
+
+[tool.uv]
+# The linuxbrew Python 3.14 ships a broken pyexpat (matplotlib cannot import),
+# so always use a uv-managed interpreter (KTD1).
+python-preference = "only-managed"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# lib3mf (a build123d dependency) trips a ctypes layout deprecation on 3.14.
+filterwarnings = ["ignore::DeprecationWarning:lib3mf.*"]
