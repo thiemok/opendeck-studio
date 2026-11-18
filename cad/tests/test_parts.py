@@ -16,6 +16,7 @@ from opendeck_case.parts import (
     COUPON_SEAM,
     coupon_layout,
     joint_fit_coupon,
+    key_tile,
     deck_tiles,
     label_text,
     plate_slab,
@@ -202,6 +203,9 @@ def test_a_non_zero_clearance_reaches_the_joints_and_the_wedge_slot():
     lay = layout(replace(block_2x8(), joint_clearance=0.2))
     tiles = deck_tiles(lay)
     assert tabs(lay, lay.key_area_width, -1).distance_to(tiles[0]) == pytest.approx(0.2, abs=0.02)
+    strip = layout(replace(strip_1x16(), joint_clearance=0.2))
+    seam = strip.tiles[0].x1
+    assert tabs(strip, seam, 1).distance_to(key_tile(strip, 1)) == pytest.approx(0.2, abs=0.02)
     assert wedge(lay, 15).distance_to(plate_slab(lay, 15)) == pytest.approx(0.2, abs=0.02)
 
 

@@ -105,3 +105,11 @@ def test_a_bed_too_small_for_the_coupons_is_reported_not_raised(tmp_path):
     report = json.loads((tmp_path / "report.json").read_text())
     assert code == 1 and report["ok"] is False
     assert {v["variant"] for v in report["variants"] if "error" in v} == {"block_2x8", "joint-fit"}
+
+
+def test_a_rebuild_removes_stale_parts_but_keeps_other_files(tmp_path):
+    (tmp_path / "block_2x8-keys-9.3mf").write_text("stale")
+    (tmp_path / "notes.txt").write_text("mine")
+    assert main(["build", "thi-82-2x8", "--out", str(tmp_path)]) == 0
+    assert not (tmp_path / "block_2x8-keys-9.3mf").exists()
+    assert (tmp_path / "notes.txt").read_text() == "mine"

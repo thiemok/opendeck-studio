@@ -17,6 +17,16 @@ from .preview import assembly_png, part_png
 from .printsets import PRINT_SETS, build_joint_fit, build_variant, default_out_dir
 
 
+# What a build writes; a rebuild clears these so no stale part is left to print.
+_GENERATED = ("*.stl", "*.3mf", "*.step", "*.png", "report.json")
+
+
+def _clear_previous_build(out: Path) -> None:
+    for pattern in _GENERATED:
+        for path in out.glob(pattern):
+            path.unlink()
+
+
 def _build(set_name: str, out: Path, bed: Bed | None) -> dict:
     report = {"set": set_name, "variants": []}
     print_set = PRINT_SETS[set_name]
@@ -105,6 +115,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     out = args.out or default_out_dir(args.set)
     out.mkdir(parents=True, exist_ok=True)
+    _clear_previous_build(out)
     report = _build(args.set, out, Bed(args.bed, args.bed) if args.bed else None)
     (out / "report.json").write_text(json.dumps(report, indent=2) + "\n")
     _print_report(report, out)

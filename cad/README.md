@@ -24,7 +24,7 @@ A build writes into `cad/out/<set>/` (gitignored):
 | `<variant>-assembly.png` | The deck assembled, with its outer size |
 | `report.json` | Every part's size, quantity and checks |
 
-The build also prints the report as a table. It exits non-zero if any check fails: a part larger than the bed less a 5 mm margin, a mesh that isn't watertight, an assembled deck that isn't the size the parameters give, or tiles that overlap at a joint. `--bed <mm>` builds for a different square bed.
+A rebuild first deletes the previous build's generated files (`.stl`, `.3mf`, `.step`, `.png`, `report.json`) in the output folder, so no stale part is left to print; other files there are kept. The build also prints the report as a table. It exits non-zero if any check fails: a part larger than the bed less a 5 mm margin, a mesh that isn't watertight, an assembled deck that isn't the size the parameters give, or tiles that overlap at a joint. `--bed <mm>` builds for a different square bed.
 
 ## The THI-82 print set
 

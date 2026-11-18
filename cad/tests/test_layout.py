@@ -40,7 +40,7 @@ def test_bed_size_changes_only_the_tiling(bed, key_tiles):  # Covers AE2.
     assert lay.keycap_centres == base.keycap_centres
 
 
-@pytest.mark.parametrize("params", [block_4x8(), strip_1x16()])
+@pytest.mark.parametrize("params", [block_4x8(), strip_1x16(), block_2x8()])
 def test_keycaps_sit_inside_their_tile_and_no_cut_crosses_one(params):
     lay = layout(params)
     kw, kd = params.keycap
@@ -53,7 +53,7 @@ def test_keycaps_sit_inside_their_tile_and_no_cut_crosses_one(params):
             assert not (x - kw / 2 < t.x0 < x + kw / 2)
 
 
-@pytest.mark.parametrize("params", [block_4x8(), strip_1x16()])
+@pytest.mark.parametrize("params", [block_4x8(), strip_1x16(), block_2x8()])
 def test_every_tile_fits_the_bed_including_its_tabs(params):
     lay = layout(params)
     usable = params.bed.usable
