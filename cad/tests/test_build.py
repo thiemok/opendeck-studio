@@ -90,3 +90,18 @@ def test_2x8_set_has_the_deck_and_the_joint_fit_pieces(tmp_path):
     fit = {p["name"]: p["quantity"] for p in groups["joint-fit"]["parts"]}
     assert fit == {"tab": 4, "socket-0.00": 1, "socket-0.05": 1, "socket-0.10": 1, "socket-0.15": 1}
     assert all(groups["joint-fit"]["checks"].values())
+
+
+def test_failing_joint_checks_are_named_and_fail_the_build(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr("opendeck_case.checks.joints_clear", lambda tiles: False)
+    code = main(["build", "thi-82-2x8", "--out", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "joints_dial_left" in out and "joint_0.00" in out
+
+
+def test_a_bed_too_small_for_the_coupons_is_reported_not_raised(tmp_path):
+    code = main(["build", "thi-82-2x8", "--out", str(tmp_path), "--bed", "70"])
+    report = json.loads((tmp_path / "report.json").read_text())
+    assert code == 1 and report["ok"] is False
+    assert {v["variant"] for v in report["variants"] if "error" in v} == {"block_2x8", "joint-fit"}

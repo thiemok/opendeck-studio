@@ -28,7 +28,7 @@ execution: code
 
 ### Summary
 
-A parametric case setup in build123d. One set of deck parameters (key pitch, grid, border, side module, target printer bed) drives every part. For THI-82 it produces tiled flat face plates for both deck shapes with engraved key and module marks, a name and size label, and clip-on tilt wedges. Each build writes printable files and preview images and runs dimension and bed-fit checks, so the agent can make and check models without the operator. The work ends with the full THI-82 print set generated and checked, ready for the operator to slice and print.
+A parametric case setup in build123d. One set of deck parameters (key pitch, grid, border, side module, target printer bed) drives every part. For THI-82 it produces tiled flat face plates for each deck shape, with key and module through-holes, a name and size label, and clip-on tilt wedges. A second print set (`thi-82-2x8`) holds the 2×8 block, the shape chosen after the first test prints, plus joint-fit coupons. Each build writes printable files and preview images and runs dimension and bed-fit checks, so the agent can make and check models without the operator. The work ends with the full THI-82 print set generated and checked, ready for the operator to slice and print.
 
 ### Problem Frame
 
@@ -54,8 +54,8 @@ THI-82 asks for full-size flat outlines of the 4×8 block and the 1×16 strip, t
 
 **THI-82 mock-up parts**
 
-- R5. Face plates exist for the 4×8 (32 keys) and the 1×16 (16 keys) layout. They use THI-82's key footprint (22.00 × 25.30 mm keycap at about 25 × 28 mm pitch), a 12 mm border, and a side section sized to hold the 65.2 × 35.1 mm OLED/encoder module.
-- R6. Each plate has shallow engraved keycap footprints at the planned pitch, an engraved footprint of the OLED/encoder module with the dial position, and an embossed label giving the variant name and the assembled outer size.
+- R5. Face plates exist for the 4×8 (32 keys), the 1×16 (16 keys) and, after the first test prints, the 2×8 (16 keys) layout. They use THI-82's key footprint (22.00 × 25.30 mm keycap at about 25 × 28 mm pitch), a 12 mm border, and a side section sized to hold the 65.2 × 35.1 mm OLED/encoder module.
+- R6. Each plate has a through-hole for every key at the planned pitch, so keycaps can be tried in place. The side tile cuts the OLED/encoder module's screen, encoder shaft, buttons and M3 mounting holes through, with positions from the vendor's dimension drawing (`docs/notes/oled-encoder-module.md`), and engraves the module board outline. An embossed label gives the variant name and the assembled outer size.
 - R7. Every part fits the target printer's bed. Any plate wider than the bed is split into tiles that join into a flat, rigid, full-size plate.
 - R8. The OLED/dial section is a separate tile that joins either end of the key area, without a second print.
 - R9. A set of clip-on tilt wedges at a few angles (for example 0°, 8° and 15°) props a joined plate at that angle on the desk.
@@ -78,7 +78,7 @@ THI-82 asks for full-size flat outlines of the 4×8 block and the 1×16 strip, t
 
 ### Scope Boundaries
 
-- Switch and keycap cut-outs, the enclosure shell, PCB standoffs and module mounting are deferred to the real case work.
+- Switch mounting, the enclosure shell and PCB standoffs are deferred to the real case work. (Keycap and module through-holes moved into scope after the first test prints, R6.)
 - Importing the Waveshare keycap/module STEP files for fit checks is deferred to the real case work. The build123d base was chosen so it is possible then.
 - Slicing, sending jobs to the printer and filament settings stay with the operator.
 - Choosing the shape, the dial side and the tilt, and recording the final dimensions, are THI-82's done criteria and happen after printing, outside this plan.
@@ -110,8 +110,8 @@ Product Contract preservation: Product Contract unchanged.
 
 - KTD1. **A uv project at `cad/`, on a uv-managed CPython 3.14, with uv pinned in `mise.toml`.** build123d 0.13.0 requires Python `>=3.11,<3.15` and its OCP wheels stop at cp314, so the system Python 3.15 cannot run it. The linuxbrew Python 3.14 on the dev machine has a broken `pyexpat` (matplotlib fails to import), so the project sets uv's python preference to managed-only. A lockfile pins build123d and every transitive dependency. Implements the build123d Key Decision. Governs R3.
 - KTD2. **One frozen parameter object per deck variant, with derived dimensions computed in plain Python, separate from geometry.** `block_4x8` and `strip_1x16` share defaults (keycap 22.00 × 25.30, pitch 25 × 28, border 12, module 65.2 × 35.1, bed 256 × 256) and differ only in grid. The outer sizes, tile cut positions and wedge heights are derived from it, so they can be tested without building any CAD geometry. Governs R1, R2, R5.
-- KTD3. **The face plates are 4 mm thick. Keycap and module footprints are 0.6 mm engraved outlines, and the label is embossed 0.6 mm.** 4 mm keeps a 495 mm strip stiff enough to lie flat on a desk. Outline grooves (not pockets) print fast and still show the key density. All three values are parameters. Governs R6.
-- KTD4. **Tiles join with in-plane dovetail (jigsaw) tabs and a clearance parameter, default 0.2 mm per side.** Tiles push together flat on the desk and need no glue or hardware. Cuts fall only in the gap between key columns, so no keycap footprint is split. That gap is only 3 mm wide, so the joints between key-area tiles sit in the 12 mm top and bottom border bands: one tab per band, two per seam. Tab size is limited so tab, socket and clearance stay clear of every keycap footprint. Key-area tiles have a socket on each outer end, and the side tile has one tab. Turning the side tile 180° moves it to the other end (R8), so its footprint has to read sensibly either way round, and the variant label sits on a key-area tile. Governs R7, R8.
+- KTD3. **The face plates are 4 mm thick. Keys and the module's screen, encoder, buttons and M3 holes are cut through; the module board outline is a 0.6 mm engraved groove, and the label is embossed 0.6 mm.** 4 mm keeps a 495 mm strip stiff enough to lie flat on a desk. The first prints used engraved outlines only; through-holes replaced them so the parts can be tried for feel. Key holes are the keycap plus 0.3 mm per side. All values are parameters. Governs R6.
+- KTD4. **Tiles join with in-plane dovetail (jigsaw) tabs and a clearance parameter, default 0 mm per side.** The first prints at 0.2 mm were too loose to hold; of joint-fit coupons at 0.00 to 0.15 mm (print set `thi-82-2x8`), 0.00 fit best on the P1S. Tiles push together flat on the desk and need no glue or hardware. Cuts fall only in the gap between key columns, so no keycap footprint is split. That gap is only 3 mm wide, so the joints between key-area tiles sit in the 12 mm top and bottom border bands: one tab per band, two per seam. Tab size is limited so tab, socket and clearance stay clear of every keycap footprint. Key-area tiles have a socket on each outer end, and the side tile has one tab. Turning the side tile 180° moves it to the other end (R8), so its footprint has to read sensibly either way round, and the variant label sits on a key-area tile. Governs R7, R8.
 - KTD5. **The tilt wedges come one per tile per angle, each with a slot that grips the plate's back edge.** The in-plane joints don't keep the tiles level with each other, so every tile needs its own wedge. That is 2 per angle for the 4×8 and 3 for the 1×16, with the count derived from the layout. The slot is the plate thickness plus the joint clearance. The plate's front edge rests on the desk, so the wedge height is `depth × sin(angle)` for that variant's plate depth. The default angles are 8° and 15°. Governs R9.
 - KTD6. **Previews are hidden-line projections drawn to PNG with matplotlib (top view and isometric), not shaded renders.** A shaded matplotlib mesh render has depth-sorting artifacts, as the probe showed. build123d's `project_to_viewport` visible edges give clean line drawings the agent can read. Each print set also gets an assembly preview with every tile in its assembled position. Governs R4, R11.
 - KTD7. **Checks live in the build itself, and their results go to `report.json` plus a printed table. Any failure exits non-zero.** The checks are:
@@ -171,7 +171,7 @@ cad/
 ### Assumptions
 
 - The operator's printer is the Bambu P1S (256 × 256 mm). This is inferred from the Bambu Studio config and is a parameter.
-- The P1S prints a 0.2 mm per-side dovetail clearance as a firm push fit. If the first print is too tight or loose, the operator changes the parameter and rebuilds. No test print is planned in this work.
+- The P1S's dovetail fit was settled by test prints (KTD4). The wedge slots use the same clearance and have not been printed at 0 mm yet.
 - The side tile's footprint (OLED window and dial circle) is acceptable when turned 180° for the other end. A mirrored second side tile is not built.
 - build123d's default text font renders on the dev machine (confirmed by the probe) and on the CI runner. If the CI runner lacks it, the test fails visibly, and the fix is to pin a font file.
 
@@ -207,7 +207,7 @@ U1 → U2 → U3 → U4 → U5 → U6. U4's exports and previews and U5's checks
 - **Dependencies:** U1.
 - **Files:** `cad/src/opendeck_case/params.py`, `cad/src/opendeck_case/layout.py`, `cad/tests/test_layout.py`.
 - **Approach:**
-  1. Keep a frozen parameter object with every value from KTD2 and KTD3, plus joint clearance and bed margin. Define `block_4x8` and `strip_1x16` as named variants.
+  1. Keep a frozen parameter object with every value from KTD2 and KTD3, plus joint clearance and bed margin. Define `block_4x8`, `strip_1x16` and `block_2x8` as named variants.
   2. Layout derives:
      - the key-area size (grid × pitch plus border) and the side-section width (module width plus a margin)
      - each keycap footprint's centre, and the module footprint's position

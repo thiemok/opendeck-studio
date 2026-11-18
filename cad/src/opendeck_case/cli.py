@@ -27,7 +27,10 @@ def _build(set_name: str, out: Path, bed: Bed | None) -> dict:
         except LayoutError as err:
             report["variants"].append({"variant": name, "error": str(err), "checks": {}})
     if print_set.joint_fit:
-        groups.append(build_joint_fit(bed))
+        try:
+            groups.append(build_joint_fit(bed))
+        except LayoutError as err:
+            report["variants"].append({"variant": "joint-fit", "error": str(err), "checks": {}})
     for group in groups:
         entry = {
             "variant": group.name,
