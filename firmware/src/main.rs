@@ -143,6 +143,11 @@ async fn main(spawner: Spawner) -> ! {
     // Pins: docs/notes/deck-wiring.md. The keys' CS and RST and the five buttons are on the
     // MCP23017, which must be up before any panel is reset or selected (THI-89).
     let _backlight = Output::new(peripherals.GPIO14, Level::High, OutputConfig::default());
+    // The Feather's STEMMA QT port, which feeds the expander and the OLED chained behind it,
+    // is powered only while GPIO2 (Adafruit's NEOPIXEL_I2C_POWER) is high. Unpowered, the
+    // expander's pull-ups clamp SDA and SCL low. Give the devices a moment to power up.
+    let _qt_power = Output::new(peripherals.GPIO2, Level::High, OutputConfig::default());
+    esp_hal::delay::Delay::new().delay_millis(10);
     // esp-hal sets no software timeout by default, so a bus held low (an unpowered
     // expander clamps SDA/SCL) would block a transfer, and the boot, forever. One OLED page
     // takes about 3 ms.

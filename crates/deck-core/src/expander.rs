@@ -31,8 +31,6 @@ const OUTPUTS: u8 = CS_A | CS_B | RST;
 
 pub const BUTTON_COUNT: usize = 5;
 const BUTTONS: u8 = (1 << BUTTON_COUNT) - 1;
-/// The keys need a pull-up; the module's buttons bring their own 10 kΩ ones.
-const KEY_PULL_UPS: u8 = 0b0000_0011;
 
 /// Register writes, as `(register, value)`, that bring the expander up: outputs latched
 /// high before they are driven, so no panel is selected or held in reset, and port B
@@ -45,7 +43,9 @@ pub const INIT: [(u8, u8); 8] = [
     (reg::IODIRA, !OUTPUTS),
     (reg::IODIRB, 0xFF),
     (reg::IPOLB, 0x00),
-    (reg::GPPUB, KEY_PULL_UPS),
+    // Every button gets a pull-up. The keys need one; the module's buttons have their own
+    // 10 kΩ ones, but read pressed while the module is unplugged without this.
+    (reg::GPPUB, BUTTONS),
     // Interrupt on change against the previous value, not against DEFVAL.
     (reg::INTCONB, 0x00),
     (reg::GPINTENB, BUTTONS),
@@ -127,9 +127,13 @@ mod tests {
     }
 
     #[test]
-    fn init_reads_the_buttons_with_pull_ups_on_the_keys_and_interrupts_on_change() {
+    fn init_reads_the_buttons_with_pull_ups_and_interrupts_on_change() {
         assert_eq!(init_value(reg::IODIRB), 0xFF);
-        assert_eq!(init_value(reg::GPPUB), 0b0000_0011);
+        assert_eq!(
+            init_value(reg::GPPUB),
+            0b0001_1111,
+            "every button is pulled up, so an unplugged module reads released"
+        );
         assert_eq!(init_value(reg::GPINTENB), 0b0001_1111);
         assert_eq!(init_value(reg::INTCONB), 0x00);
         assert_eq!(init_value(reg::IPOLB), 0x00);
