@@ -32,7 +32,7 @@ use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::efuse::{self, InterfaceMacAddress};
 use esp_hal::gpio::{Input, InputConfig, Io, Level, Output, OutputConfig, Pull};
-use esp_hal::i2c::master::{Config as I2cConfig, I2c};
+use esp_hal::i2c::master::{Config as I2cConfig, I2c, SoftwareTimeout};
 use esp_hal::pcnt::Pcnt;
 use esp_hal::spi::Mode;
 use esp_hal::spi::master::{Config as SpiConfig, Spi};
@@ -143,9 +143,16 @@ async fn main(spawner: Spawner) -> ! {
     // Pins: docs/notes/deck-wiring.md. The keys' CS and RST and the five buttons are on the
     // MCP23017, which must be up before any panel is reset or selected (THI-89).
     let _backlight = Output::new(peripherals.GPIO14, Level::High, OutputConfig::default());
+    // esp-hal sets no software timeout by default, so a bus held low (an unpowered
+    // expander clamps SDA/SCL) would block a transfer, and the boot, forever. One OLED page
+    // takes about 3 ms.
     let i2c = I2c::new(
         peripherals.I2C0,
-        I2cConfig::default().with_frequency(Rate::from_khz(oled::calibration::I2C_KHZ)),
+        I2cConfig::default()
+            .with_frequency(Rate::from_khz(oled::calibration::I2C_KHZ))
+            .with_software_timeout(SoftwareTimeout::Transaction(
+                esp_hal::time::Duration::from_millis(20),
+            )),
     )
     .expect("I2C0 config")
     .with_sda(peripherals.GPIO22)
