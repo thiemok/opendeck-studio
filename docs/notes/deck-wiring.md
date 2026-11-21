@@ -5,7 +5,7 @@ How the two Waveshare 0.85" ScreenKey Module B keys, the 1.3" OLED/encoder modul
 > **Status:**
 > - **Key A** was calibrated on the bench on 2026-11-15 (U8 in [the PoC plan](../plans/2026-11-13-1722-feat-companion-network-deck-poc-plan.md)), with one Feather ESP32 V2 (ESP32-PICO-V3-02, rev v3.0) and one ScreenKey Module B.
 > - **Key B and the OLED/encoder module** (P3) were checked on the bench on 2026-11-16 with the direct pins of that time (U13 and U14).
-> - **The MCP23017 wiring** (THI-89, [plan](../plans/2026-11-21-1733-feat-mcp23017-key-inputs-bench-plan.md)) replaced those direct pins on 2026-11-21. The keys' KEY, CS and RST and the module's three buttons now go through the expander. It has not been checked on the bench yet.
+> - **The MCP23017 wiring** (THI-89, [plan](../plans/2026-11-21-1733-feat-mcp23017-key-inputs-bench-plan.md)) replaced those direct pins on 2026-11-21. The keys' KEY, CS and RST and the module's three buttons now go through the expander. The firmware follows the same pins. It has not been checked on the bench yet; the runbook is in [io-expander-bench.md](io-expander-bench.md).
 
 ## Wiring
 
