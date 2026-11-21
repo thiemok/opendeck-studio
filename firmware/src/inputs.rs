@@ -1,15 +1,13 @@
 //! Reads the five buttons through the MCP23017 and sends debounced edges to the link
 //! (KTD18, KTD24; THI-89 KTD4, KTD5).
 //!
-//! The task waits for the expander's interrupt line to go low, reads port B, and keeps
-//! reading every 2 ms while any button is still settling, because the debouncer needs
-//! samples until a level has held for 20 ms. A level wait, not an edge wait, means an
-//! interrupt left asserted wakes the task again instead of being lost.
+//! The task waits on the interrupt line's level, not an edge, so an interrupt left
+//! asserted wakes it again instead of being lost.
 //!
-//! Bench only: key A's switch may also be wired to GPIO32. A GPIO interrupt handler stamps
-//! that pin's falling edge, and the task logs how long the expander path took to see the
-//! same press. A task can't stamp it: key draws and OLED writes run synchronously on the
-//! same executor and would hide exactly the wait being measured.
+//! Bench only: key A's switch may also be wired to GPIO32, and the task logs how long the
+//! expander path took to see a press on it. The edge is stamped in a GPIO interrupt
+//! handler: key draws and OLED writes run synchronously on the executor and would hide
+//! exactly the wait being measured.
 
 use core::cell::{Cell, RefCell};
 use deck_core::debounce::{DEFAULT_INTERVAL_MS, Debouncer, Edge};
@@ -35,7 +33,7 @@ pub enum Button {
     Confirm,
 }
 
-/// Port B order: GPB0–GPB4 (`deck_core::expander::pressed`).
+/// Must match `deck_core::expander::pressed`'s port-B bit order, GPB0–GPB4.
 const BUTTONS: [Button; BUTTON_COUNT] = [
     Button::KeyA,
     Button::KeyB,
@@ -43,6 +41,7 @@ const BUTTONS: [Button; BUTTON_COUNT] = [
     Button::Back,
     Button::Confirm,
 ];
+const KEY_A: usize = 0;
 
 impl Button {
     /// The Companion control a button reports to. BACK and CONFIRM belong to the device and
@@ -58,12 +57,12 @@ impl Button {
 }
 
 const SAMPLE_PERIOD: Duration = Duration::from_millis(2);
-/// After a failed read the interrupt stays latched (or the line floats without the
-/// expander), so the task waits this long before listening again instead of spinning.
+/// After a failed read the task waits this long before trying again, instead of spinning
+/// on a latched interrupt or on the floating line of a missing expander.
 const RETRY_AFTER_FAILURE: Duration = Duration::from_millis(100);
 /// Edge-to-detection samples between summaries.
 const SUMMARY_EVERY: usize = 20;
-/// A reference stamp older than this is left over from a release bounce, not this press.
+/// A reference stamp older than this came from noise on the idle line, not from this press.
 const MAX_REFERENCE_AGE_US: u64 = 250_000;
 
 /// Debounced edges for the link: `true` = pressed. Full means the link is busy; an edge is
@@ -119,19 +118,21 @@ pub async fn inputs_task(expander: &'static Expander, mut interrupt: Input<'stat
     }
     let mut debouncers: [Debouncer; BUTTON_COUNT] =
         core::array::from_fn(|_| Debouncer::new(DEFAULT_INTERVAL_MS));
-    let mut key_a_pressed = false;
+    // True from key A's debounced release until the first read of its next press, so each
+    // press yields one edge-to-detection sample however much the switch bounces.
+    let mut key_a_idle = true;
     let mut delays = Samples::new(SUMMARY_EVERY);
     let mut failing = false;
     loop {
         interrupt.wait_for_low().await;
         loop {
-            let pressed = match expander.buttons() {
-                Ok(pressed) => {
+            let levels = match expander.buttons() {
+                Ok(levels) => {
                     if failing {
                         info!("MCP23017 reads again");
                         failing = false;
                     }
-                    pressed
+                    levels
                 }
                 Err(e) => {
                     if !failing {
@@ -139,17 +140,27 @@ pub async fn inputs_task(expander: &'static Expander, mut interrupt: Input<'stat
                         failing = true;
                     }
                     Timer::after(RETRY_AFTER_FAILURE).await;
-                    break;
+                    // The last good read cleared the interrupt, so a button still settling
+                    // would never raise it again: keep reading until it has counted.
+                    if debouncers.iter().all(Debouncer::settled) {
+                        break;
+                    }
+                    continue;
                 }
             };
             let now_us = Instant::now().as_micros();
-            if pressed[0] && !key_a_pressed {
+            if levels[KEY_A] && key_a_idle {
+                key_a_idle = false;
                 record_reference_delay(now_us, &mut delays);
             }
-            key_a_pressed = pressed[0];
-            for ((button, pressed), debouncer) in BUTTONS.iter().zip(pressed).zip(&mut debouncers) {
-                if let Some(edge) = debouncer.update(pressed, now_us / 1000) {
+            for ((button, level), debouncer) in BUTTONS.iter().zip(levels).zip(&mut debouncers) {
+                if let Some(edge) = debouncer.update(level, now_us / 1000) {
                     let pressed = edge == Edge::Pressed;
+                    if *button == Button::KeyA && !pressed {
+                        // Stamps from this press's bounces must not time the next press.
+                        key_a_idle = true;
+                        REFERENCE_EDGE_US.lock(|edge| edge.set(None));
+                    }
                     info!(
                         "{button:?} {}",
                         if pressed { "pressed" } else { "released" }
