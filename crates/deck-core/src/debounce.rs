@@ -28,6 +28,12 @@ impl Debouncer {
         }
     }
 
+    /// True when no level change is waiting out the interval, so no further samples are
+    /// needed until the input changes again.
+    pub fn settled(&self) -> bool {
+        self.candidate == self.stable
+    }
+
     /// Returns an edge when the new level has held for the interval.
     pub fn update(&mut self, pressed: bool, now_ms: u64) -> Option<Edge> {
         if pressed != self.candidate {
@@ -79,6 +85,22 @@ mod tests {
         assert_eq!(
             run(&samples),
             vec![(Edge::Pressed, 20), (Edge::Released, 54)]
+        );
+    }
+
+    #[test]
+    fn settled_only_while_no_change_is_pending() {
+        let mut d = Debouncer::new(DEFAULT_INTERVAL_MS);
+        assert!(d.settled());
+        d.update(true, 0);
+        assert!(!d.settled(), "a press is waiting out the interval");
+        d.update(true, 20);
+        assert!(d.settled(), "the press counted");
+        d.update(false, 30);
+        d.update(true, 32);
+        assert!(
+            d.settled(),
+            "a bounce back to the stable level leaves nothing pending"
         );
     }
 

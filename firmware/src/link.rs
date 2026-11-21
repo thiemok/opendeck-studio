@@ -46,18 +46,20 @@ pub struct Buffers {
     pub out: &'static mut [u8],
 }
 
-/// Every display the surface has (KTD20).
+/// Every display the surface has (KTD20). A key is `None` when the MCP23017 that selects
+/// it is missing; its images are then dropped (THI-89 KTD6).
 pub struct Displays {
-    pub key_a: KeyDisplay,
-    pub key_b: KeyDisplay,
+    pub key_a: Option<KeyDisplay>,
+    pub key_b: Option<KeyDisplay>,
     pub oled: Oled,
 }
 
 impl Displays {
     /// Shows a link state on every display and sends the OLED's frame (KTD26).
     async fn status(&mut self, status: Status<'_>) {
-        self.key_a.status(status);
-        self.key_b.status(status);
+        for key in self.keys() {
+            key.status(status);
+        }
         self.oled.status(status);
         self.flush_oled().await;
     }
@@ -74,20 +76,28 @@ impl Displays {
         png: Option<&mut PngWorkspace>,
         draw: bool,
     ) -> Result<(), DrawError> {
-        match control {
-            Control::KeyA | Control::Bench(0) => self.key_a.bitmap(bitmap, png),
-            Control::KeyB | Control::Bench(1) => self.key_b.bitmap(bitmap, png),
-            Control::Encoder => self.oled.bitmap(bitmap, png),
-            Control::Bench(n) if draw && n % 2 == 0 => self.key_a.bitmap(bitmap, png),
-            Control::Bench(_) if draw => self.key_b.bitmap(bitmap, png),
-            Control::Bench(_) => decode_only(bitmap, png).map(|sum| debug!("checksum {sum:08x}")),
-        }
+        let key = match control {
+            Control::Encoder => return self.oled.bitmap(bitmap, png),
+            Control::KeyA | Control::Bench(0) => &mut self.key_a,
+            Control::KeyB | Control::Bench(1) => &mut self.key_b,
+            Control::Bench(n) if draw && n % 2 == 0 => &mut self.key_a,
+            Control::Bench(_) if draw => &mut self.key_b,
+            Control::Bench(_) => {
+                return decode_only(bitmap, png).map(|sum| debug!("checksum {sum:08x}"));
+            }
+        };
+        key.as_mut().map_or(Ok(()), |key| key.bitmap(bitmap, png))
     }
 
     fn blank(&mut self) {
-        self.key_a.blank();
-        self.key_b.blank();
+        for key in self.keys() {
+            key.blank();
+        }
         self.oled.blank();
+    }
+
+    fn keys(&mut self) -> impl Iterator<Item = &mut KeyDisplay> {
+        [&mut self.key_a, &mut self.key_b].into_iter().flatten()
     }
 
     async fn flush_oled(&mut self) {

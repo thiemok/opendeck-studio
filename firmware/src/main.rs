@@ -11,6 +11,7 @@ mod config_store;
 mod console;
 mod display;
 mod encoder;
+mod expander;
 mod inputs;
 mod link;
 mod oled;
@@ -18,6 +19,7 @@ mod wifi;
 
 use core::cell::{Cell, RefCell};
 use deck_core::config::HostConfig;
+use deck_core::expander::Key;
 use deck_core::mono::MonoFrame;
 use deck_core::session::{DeviceIds, Session, SurfaceConfig};
 use display::{KeyDisplay, SharedPin};
@@ -29,7 +31,7 @@ use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::efuse::{self, InterfaceMacAddress};
-use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
+use esp_hal::gpio::{Input, InputConfig, Io, Level, Output, OutputConfig, Pull};
 use esp_hal::i2c::master::{Config as I2cConfig, I2c};
 use esp_hal::pcnt::Pcnt;
 use esp_hal::spi::Mode;
@@ -38,7 +40,7 @@ use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::uart::{Config as UartConfig, UartRx};
 use esp_storage::FlashStorage;
-use inputs::Button;
+use expander::{Expander, I2cBus};
 use log::{error, info, warn};
 use oled::Oled;
 use static_cell::{ConstStaticCell, StaticCell};
@@ -86,6 +88,9 @@ static OLED_FRAME: ConstStaticCell<MonoFrame> = ConstStaticCell::new(MonoFrame::
 /// The keys share SPI2 and the DC line (KTD21).
 static SPI_BUS: StaticCell<RefCell<display::SpiBus>> = StaticCell::new();
 static KEY_DC: StaticCell<RefCell<Output<'static>>> = StaticCell::new();
+/// The OLED and the MCP23017 share I²C0 (THI-89 KTD1).
+static I2C_BUS: StaticCell<RefCell<I2cBus>> = StaticCell::new();
+static EXPANDER: StaticCell<Expander> = StaticCell::new();
 
 /// How long the calibration patterns stay up at boot.
 const TEST_PATTERN_TIME: Duration = Duration::from_secs(3);
@@ -135,10 +140,21 @@ async fn main(spawner: Spawner) -> ! {
     }
     HOST.lock(|h| h.set(saved));
 
-    // Pins: docs/notes/deck-wiring.md.
+    // Pins: docs/notes/deck-wiring.md. The keys' CS and RST and the five buttons are on the
+    // MCP23017, which must be up before any panel is reset or selected (THI-89).
     let _backlight = Output::new(peripherals.GPIO14, Level::High, OutputConfig::default());
-    let mut key_rst = Output::new(peripherals.GPIO15, Level::High, OutputConfig::default());
-    display::reset_panels(&mut key_rst);
+    let i2c = I2c::new(
+        peripherals.I2C0,
+        I2cConfig::default().with_frequency(Rate::from_khz(oled::calibration::I2C_KHZ)),
+    )
+    .expect("I2C0 config")
+    .with_sda(peripherals.GPIO22)
+    .with_scl(peripherals.GPIO20);
+    let i2c = I2C_BUS.init(RefCell::new(i2c));
+    let expander = EXPANDER.init(Expander::new(i2c));
+    if expander.init() {
+        expander.reset_panels();
+    }
     let spi = Spi::new(
         peripherals.SPI2,
         SpiConfig::default()
@@ -154,54 +170,37 @@ async fn main(spawner: Spawner) -> ! {
         Level::Low,
         OutputConfig::default(),
     )));
-    let mut key_a = KeyDisplay::new(
-        bus,
-        Output::new(peripherals.GPIO33, Level::High, OutputConfig::default()),
-        SharedPin::new(dc),
-        SPI_BUF_A.take(),
-    );
-    let mut key_b = KeyDisplay::new(
-        bus,
-        Output::new(peripherals.GPIO26, Level::High, OutputConfig::default()),
-        SharedPin::new(dc),
-        SPI_BUF_B.take(),
-    );
-    key_a.test_pattern("KEY A");
-    key_b.test_pattern("KEY B");
+    let mut key_a = KeyDisplay::new(bus, Key::A, expander, SharedPin::new(dc), SPI_BUF_A.take());
+    let mut key_b = KeyDisplay::new(bus, Key::B, expander, SharedPin::new(dc), SPI_BUF_B.take());
+    if let Some(key) = &mut key_a {
+        key.test_pattern("KEY A");
+    }
+    if let Some(key) = &mut key_b {
+        key.test_pattern("KEY B");
+    }
 
-    let i2c = I2c::new(
-        peripherals.I2C0,
-        I2cConfig::default().with_frequency(Rate::from_khz(oled::calibration::I2C_KHZ)),
-    )
-    .expect("I2C0 config")
-    .with_sda(peripherals.GPIO22)
-    .with_scl(peripherals.GPIO20)
-    .into_async();
     let mut oled = Oled::new(i2c, OLED_FRAME.take());
-    oled.init().await;
+    oled.init();
     oled.test_pattern();
     if let Err(e) = oled.flush().await {
         warn!("OLED test pattern not shown: {e:?}");
     }
 
-    // The keys use the internal pull-up; the module's inputs have their own (KTD24, KTD25).
-    let key_input = InputConfig::default().with_pull(Pull::Up);
+    // The buttons are read through the expander, woken by its INTB on GPIO37, which is
+    // push-pull and needs no pull-up (THI-89 KTD4). GPIO32 is the bench-only reference wire
+    // from key A's switch; with nothing on it the pull-up keeps it quiet (KTD5).
     let module_input = InputConfig::default();
+    let mut io = Io::new(peripherals.IO_MUX);
+    inputs::install_reference(
+        &mut io,
+        Input::new(
+            peripherals.GPIO32,
+            InputConfig::default().with_pull(Pull::Up),
+        ),
+    );
     spawner.spawn(
-        inputs::inputs_task([
-            (Button::KeyA, Input::new(peripherals.GPIO32, key_input)),
-            (Button::KeyB, Input::new(peripherals.GPIO25, key_input)),
-            (
-                Button::EncoderPush,
-                Input::new(peripherals.GPIO36, module_input),
-            ),
-            (Button::Back, Input::new(peripherals.GPIO39, module_input)),
-            (
-                Button::Confirm,
-                Input::new(peripherals.GPIO37, module_input),
-            ),
-        ])
-        .expect("spawn inputs task"),
+        inputs::inputs_task(expander, Input::new(peripherals.GPIO37, module_input))
+            .expect("spawn inputs task"),
     );
 
     let pcnt = Pcnt::new(peripherals.PCNT);
