@@ -16,7 +16,7 @@ use log::{info, warn};
 
 pub type I2cBus = I2c<'static, Blocking>;
 
-/// I²C0, shared by the expander and the OLED. A borrow never spans an `.await`.
+/// I²C0, shared by the expander and the OLED.
 pub type SharedI2c = &'static RefCell<I2cBus>;
 
 pub struct Expander {
@@ -60,27 +60,20 @@ impl Expander {
 
     /// Selects `key`'s panel alone. Returns false, and logs, if the write failed.
     pub fn select(&self, key: Key) -> bool {
-        let mut port = self.port_a.get();
-        let byte = port.select(key);
-        self.set_port_a(port, byte)
+        self.update_port_a(|port| port.select(key))
     }
 
     pub fn deselect(&self) {
-        let mut port = self.port_a.get();
-        let byte = port.deselect();
-        self.set_port_a(port, byte);
+        self.update_port_a(PortA::deselect);
     }
 
     /// Pulses the keys' shared RST so every panel starts from a hardware reset; it then
     /// stays high. Each panel's init follows with a software reset (PoC KTD21).
     pub fn reset_panels(&self) {
         let delay = Delay::new();
-        let mut port = self.port_a.get();
-        let byte = port.reset(true);
-        self.set_port_a(port, byte);
+        self.update_port_a(|port| port.reset(true));
         delay.delay_micros(20);
-        let byte = port.reset(false);
-        self.set_port_a(port, byte);
+        self.update_port_a(|port| port.reset(false));
         delay.delay_millis(120);
     }
 
@@ -90,7 +83,11 @@ impl Expander {
         self.read(reg::GPIOB).map(expander::pressed)
     }
 
-    fn set_port_a(&self, port: PortA, byte: u8) -> bool {
+    /// Applies `change` to the port-A latch and writes it; the latch keeps the change only
+    /// if the write succeeded.
+    fn update_port_a(&self, change: impl FnOnce(&mut PortA) -> u8) -> bool {
+        let mut port = self.port_a.get();
+        let byte = change(&mut port);
         match self.write(reg::OLATA, byte) {
             Ok(()) => {
                 self.port_a.set(port);

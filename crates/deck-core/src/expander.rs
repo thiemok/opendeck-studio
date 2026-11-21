@@ -1,8 +1,8 @@
 //! The MCP23017 I/O expander that carries the buttons, the key chip selects and the key
 //! reset (THI-89, KTD2 in `docs/plans/2026-11-21-1733-feat-mcp23017-key-inputs-bench-plan.md`).
 //!
-//! This module only computes register bytes; the firmware sends them over I²C. Registers
-//! use the power-on layout (IOCON.BANK = 0), where port A and port B registers alternate.
+//! Registers use the power-on layout (IOCON.BANK = 0), where port A and port B registers
+//! alternate.
 //!
 //! Port A drives outputs: GPA0 is key A's CS, GPA1 key B's CS, GPA2 the keys' shared RST.
 //! Port B reads the five buttons, GPB0–GPB4, each low while pressed. GPA7 and GPB7 are
@@ -29,13 +29,10 @@ const CS_B: u8 = 1 << 1;
 const RST: u8 = 1 << 2;
 const OUTPUTS: u8 = CS_A | CS_B | RST;
 
-/// GPB0–GPB4: key A, key B, encoder push, BACK, CONFIRM.
-const BUTTONS: u8 = 0b0001_1111;
+pub const BUTTON_COUNT: usize = 5;
+const BUTTONS: u8 = (1 << BUTTON_COUNT) - 1;
 /// The keys need a pull-up; the module's buttons bring their own 10 kΩ ones.
 const KEY_PULL_UPS: u8 = 0b0000_0011;
-
-/// How many buttons port B carries, in the order of [`pressed`].
-pub const BUTTON_COUNT: usize = 5;
 
 /// Register writes, as `(register, value)`, that bring the expander up: outputs latched
 /// high before they are driven, so no panel is selected or held in reset, and port B
