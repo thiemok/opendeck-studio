@@ -1,15 +1,14 @@
 //! The ScreenKeys' ST7735 panels on one shared SPI bus: test pattern, status screens and
 //! Companion bitmaps (KTD15, KTD17, KTD21).
 //!
-//! Each panel's CS sits on the MCP23017. It is held low for a whole draw, not toggled per
+//! Each panel's CS sits on the MCP23017. The caller holds it low for a whole draw, not per
 //! SPI transaction, which would cost two I²C writes for each of the 30-plus transactions in
-//! a frame (THI-89 KTD3).
+//! a frame (THI-89 KTD3). Drawing stays synchronous; selecting is async and happens around
+//! it.
 
-use crate::expander::Expander;
 use core::cell::RefCell;
 use core::convert::Infallible;
 use deck_core::bitmap::{self, BitmapError};
-use deck_core::expander::Key;
 use deck_core::png::{self, PngError, PngWorkspace};
 use deck_core::session::KEY_SIZE;
 use embedded_graphics::mono_font::ascii::{FONT_6X10, FONT_9X15_BOLD};
@@ -118,7 +117,7 @@ impl OutputPin for SharedPin {
 }
 
 /// The SPI device's chip select. The real CS is on the expander and is held for a whole
-/// draw by [`KeyDisplay`], so per-transaction CS does nothing.
+/// draw by the caller, so per-transaction CS does nothing.
 pub struct NoCs;
 
 impl ErrorType for NoCs {
@@ -137,23 +136,12 @@ impl OutputPin for NoCs {
 
 pub struct KeyDisplay {
     panel: Panel,
-    key: Key,
-    expander: &'static Expander,
 }
 
 impl KeyDisplay {
     /// Initialises one panel on the shared bus; `buffer` batches pixel bytes per SPI transfer.
-    /// `None` when the expander can't select the panel, so its CS would float (KTD6).
-    pub fn new(
-        bus: &'static RefCell<SpiBus>,
-        key: Key,
-        expander: &'static Expander,
-        dc: SharedPin,
-        buffer: &'static mut [u8],
-    ) -> Option<Self> {
-        if !expander.present() || !expander.select(key) {
-            return None;
-        }
+    /// The caller selects the panel first.
+    pub fn new(bus: &'static RefCell<SpiBus>, dc: SharedPin, buffer: &'static mut [u8]) -> Self {
         let device = match RefCellDevice::new(bus, NoCs, Delay::new()) {
             Ok(device) => device,
             Err(never) => match never {},
@@ -167,59 +155,52 @@ impl KeyDisplay {
             .invert_colors(calibration::INVERSION)
             .init(&mut Delay::new())
             .unwrap_or_else(|e| panic!("ST7735 init failed: {e:?}"));
-        expander.deselect();
-        Some(Self {
-            panel,
-            key,
-            expander,
-        })
+        Self { panel }
     }
 
     /// The calibration pattern: a 1 px white border and red/green/blue/white corner blocks
     /// (top-left red, top-right green, bottom-left blue, bottom-right white). If a border edge
     /// is missing, the offset is wrong; if red shows blue, the colour order is.
     pub fn test_pattern(&mut self, label: &str) {
-        self.selected(|panel| {
-            fill(panel, Rgb565::BLACK);
-            let last = i32::from(KEY_SIZE) - 1;
-            let _ = Rectangle::new(Point::zero(), Size::new_equal(u32::from(KEY_SIZE)))
-                .into_styled(PrimitiveStyle::with_stroke(Rgb565::WHITE, 1))
+        let panel = &mut self.panel;
+        fill(panel, Rgb565::BLACK);
+        let last = i32::from(KEY_SIZE) - 1;
+        let _ = Rectangle::new(Point::zero(), Size::new_equal(u32::from(KEY_SIZE)))
+            .into_styled(PrimitiveStyle::with_stroke(Rgb565::WHITE, 1))
+            .draw(panel);
+        for (corner, color) in [
+            (Point::new(4, 4), Rgb565::RED),
+            (Point::new(last - 27, 4), Rgb565::GREEN),
+            (Point::new(4, last - 27), Rgb565::BLUE),
+            (Point::new(last - 27, last - 27), Rgb565::WHITE),
+        ] {
+            let _ = Rectangle::new(corner, Size::new_equal(24))
+                .into_styled(PrimitiveStyle::with_fill(color))
                 .draw(panel);
-            for (corner, color) in [
-                (Point::new(4, 4), Rgb565::RED),
-                (Point::new(last - 27, 4), Rgb565::GREEN),
-                (Point::new(4, last - 27), Rgb565::BLUE),
-                (Point::new(last - 27, last - 27), Rgb565::WHITE),
-            ] {
-                let _ = Rectangle::new(corner, Size::new_equal(24))
-                    .into_styled(PrimitiveStyle::with_fill(color))
-                    .draw(panel);
-            }
-            text_centered(panel, label, 64, &FONT_9X15_BOLD);
-        });
+        }
+        text_centered(panel, label, 64, &FONT_9X15_BOLD);
     }
 
     pub fn status(&mut self, status: Status<'_>) {
-        self.selected(|panel| {
-            fill(panel, Rgb565::BLACK);
-            match status {
-                Status::NoWifi => text_centered(panel, "No Wi-Fi", 60, &FONT_9X15_BOLD),
-                Status::NoHost => {
-                    text_centered(panel, "No host", 52, &FONT_9X15_BOLD);
-                    text_centered(panel, "set it over", 76, &FONT_6X10);
-                    text_centered(panel, "USB serial", 88, &FONT_6X10);
-                }
-                Status::Connecting { host } => {
-                    text_centered(panel, "Connecting", 52, &FONT_9X15_BOLD);
-                    text_centered(
-                        panel,
-                        host.get(..HOST_CHARS_PER_LINE).unwrap_or(host),
-                        78,
-                        &FONT_6X10,
-                    );
-                }
+        let panel = &mut self.panel;
+        fill(panel, Rgb565::BLACK);
+        match status {
+            Status::NoWifi => text_centered(panel, "No Wi-Fi", 60, &FONT_9X15_BOLD),
+            Status::NoHost => {
+                text_centered(panel, "No host", 52, &FONT_9X15_BOLD);
+                text_centered(panel, "set it over", 76, &FONT_6X10);
+                text_centered(panel, "USB serial", 88, &FONT_6X10);
             }
-        });
+            Status::Connecting { host } => {
+                text_centered(panel, "Connecting", 52, &FONT_9X15_BOLD);
+                text_centered(
+                    panel,
+                    host.get(..HOST_CHARS_PER_LINE).unwrap_or(host),
+                    78,
+                    &FONT_6X10,
+                );
+            }
+        }
     }
 
     /// Draws a Companion bitmap, `rgb` or `png`. A bad `rgb` bitmap is reported and not
@@ -229,45 +210,26 @@ impl KeyDisplay {
         if !is_png(bitmap) {
             let pixels =
                 bitmap::rgb565_pixels(bitmap, KEY_SIZE, KEY_SIZE).map_err(DrawError::Rgb)?;
-            return self
-                .selected(|panel| {
-                    let _ = panel.set_pixels(
-                        0,
-                        0,
-                        end,
-                        end,
-                        pixels.map(|p| Rgb565::from(RawU16::new(p))),
-                    );
-                })
-                .ok_or(DrawError::NotSelected);
+            let _ =
+                self.panel
+                    .set_pixels(0, 0, end, end, pixels.map(|p| Rgb565::from(RawU16::new(p))));
+            return Ok(());
         }
         let ws = ws.ok_or(DrawError::NoPngWorkspace)?;
-        self.selected(|panel| {
-            png::decode(bitmap, KEY_SIZE, KEY_SIZE, ws, |y, rgb| {
-                let pixels = rgb
-                    .as_chunks::<3>()
-                    .0
-                    .iter()
-                    .map(|px| Rgb565::from(RawU16::new(bitmap::rgb565(*px))));
-                let _ = panel.set_pixels(0, y, end, y, pixels);
-            })
-            .map_err(DrawError::Png)
+        let panel = &mut self.panel;
+        png::decode(bitmap, KEY_SIZE, KEY_SIZE, ws, |y, rgb| {
+            let pixels = rgb
+                .as_chunks::<3>()
+                .0
+                .iter()
+                .map(|px| Rgb565::from(RawU16::new(bitmap::rgb565(*px))));
+            let _ = panel.set_pixels(0, y, end, y, pixels);
         })
-        .ok_or(DrawError::NotSelected)?
+        .map_err(DrawError::Png)
     }
 
     pub fn blank(&mut self) {
-        self.selected(|panel| fill(panel, Rgb565::BLACK));
-    }
-
-    /// Runs `draw` with this panel's CS held low; `None` if the expander didn't take it.
-    fn selected<R>(&mut self, draw: impl FnOnce(&mut Panel) -> R) -> Option<R> {
-        if !self.expander.select(self.key) {
-            return None;
-        }
-        let result = draw(&mut self.panel);
-        self.expander.deselect();
-        Some(result)
+        fill(&mut self.panel, Rgb565::BLACK);
     }
 }
 

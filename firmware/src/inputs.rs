@@ -123,10 +123,11 @@ pub async fn inputs_task(expander: &'static Expander, mut interrupt: Input<'stat
     let mut key_a_idle = true;
     let mut delays = Samples::new(SUMMARY_EVERY);
     let mut failing = false;
+    let mut int_stuck = false;
     loop {
         interrupt.wait_for_low().await;
         loop {
-            let levels = match expander.buttons() {
+            let levels = match expander.buttons().await {
                 Ok(levels) => {
                     if failing {
                         info!("MCP23017 reads again");
@@ -169,7 +170,16 @@ pub async fn inputs_task(expander: &'static Expander, mut interrupt: Input<'stat
                 }
             }
             if debouncers.iter().all(Debouncer::settled) {
-                break;
+                // A read clears INTB, so a line still low means it isn't reaching GPIO37
+                // (a loose wire floats low). Poll instead of spinning on the shared bus.
+                if !interrupt.is_low() {
+                    int_stuck = false;
+                    break;
+                }
+                if !int_stuck {
+                    warn!("INTB stays low after a read; is IB wired to GPIO37? polling every 2 ms");
+                    int_stuck = true;
+                }
             }
             Timer::after(SAMPLE_PERIOD).await;
         }

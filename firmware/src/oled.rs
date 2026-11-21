@@ -6,12 +6,12 @@
 //! lives, and do the slow I²C write after it returns. A missing or failing panel is logged
 //! and never stops the deck.
 //!
-//! The bus is blocking and shared with the MCP23017 (THI-89 KTD1), so the frame goes out one
-//! 128-byte page (about 3 ms at 400 kHz) at a time, with a yield between pages. A key press
-//! then waits at most one page for the bus, not the whole 25 ms frame.
+//! The async bus is shared with the MCP23017 (THI-89 KTD1), and each 128-byte page (about
+//! 3 ms at 400 kHz) takes the bus on its own. A button read then waits at most one page, not
+//! the whole 25 ms frame.
 
 use crate::display::{DrawError, Status, is_png};
-use crate::expander::SharedI2c;
+use crate::expander::{self, SharedI2c};
 use core::convert::Infallible;
 use deck_core::mono::{MonoFrame, PAGES};
 use deck_core::png::PngWorkspace;
@@ -80,8 +80,8 @@ impl Oled {
     }
 
     /// Powers the panel up; a failure is logged and drawing carries on in memory.
-    pub fn init(&mut self) {
-        match self.write(&INIT) {
+    pub async fn init(&mut self) {
+        match self.write(&INIT).await {
             Ok(()) => info!("OLED ready at {ADDRESS:#04x}"),
             Err(e) => warn!("OLED did not answer at {ADDRESS:#04x}: {e:?}"),
         }
@@ -103,17 +103,16 @@ impl Oled {
                 column & 0x0F,        // column, low nibble
                 0x10 | (column >> 4), // column, high nibble
             ];
-            self.write(&address)?;
+            self.write(&address).await?;
             data[1..].copy_from_slice(self.frame.page(page));
-            self.write(&data)?;
-            embassy_futures::yield_now().await;
+            self.write(&data).await?;
         }
         self.dirty = false;
         Ok(())
     }
 
-    fn write(&self, bytes: &[u8]) -> Result<(), I2cError> {
-        self.i2c.borrow_mut().write(ADDRESS, bytes)
+    async fn write(&self, bytes: &[u8]) -> Result<(), I2cError> {
+        expander::write(self.i2c, ADDRESS, bytes).await
     }
 
     /// Takes a Companion bitmap, `rgb` or `png`. A bad `rgb` bitmap is reported and the

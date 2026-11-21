@@ -26,13 +26,14 @@ use display::{KeyDisplay, SharedPin};
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::mutex::Mutex as AsyncMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::efuse::{self, InterfaceMacAddress};
 use esp_hal::gpio::{Input, InputConfig, Io, Level, Output, OutputConfig, Pull};
-use esp_hal::i2c::master::{Config as I2cConfig, I2c, SoftwareTimeout};
+use esp_hal::i2c::master::{Config as I2cConfig, I2c};
 use esp_hal::pcnt::Pcnt;
 use esp_hal::spi::Mode;
 use esp_hal::spi::master::{Config as SpiConfig, Spi};
@@ -89,7 +90,7 @@ static OLED_FRAME: ConstStaticCell<MonoFrame> = ConstStaticCell::new(MonoFrame::
 static SPI_BUS: StaticCell<RefCell<display::SpiBus>> = StaticCell::new();
 static KEY_DC: StaticCell<RefCell<Output<'static>>> = StaticCell::new();
 /// The OLED and the MCP23017 share I²C0 (THI-89 KTD1).
-static I2C_BUS: StaticCell<RefCell<I2cBus>> = StaticCell::new();
+static I2C_BUS: StaticCell<AsyncMutex<CriticalSectionRawMutex, I2cBus>> = StaticCell::new();
 static EXPANDER: StaticCell<Expander> = StaticCell::new();
 
 /// How long the calibration patterns stay up at boot.
@@ -143,29 +144,20 @@ async fn main(spawner: Spawner) -> ! {
     // Pins: docs/notes/deck-wiring.md. The keys' CS and RST and the five buttons are on the
     // MCP23017, which must be up before any panel is reset or selected (THI-89).
     let _backlight = Output::new(peripherals.GPIO14, Level::High, OutputConfig::default());
-    // The Feather's STEMMA QT port, which feeds the expander and the OLED chained behind it,
-    // is powered only while GPIO2 (Adafruit's NEOPIXEL_I2C_POWER) is high. Unpowered, the
-    // expander's pull-ups clamp SDA and SCL low. Give the devices a moment to power up.
-    let _qt_power = Output::new(peripherals.GPIO2, Level::High, OutputConfig::default());
-    esp_hal::delay::Delay::new().delay_millis(10);
-    // esp-hal sets no software timeout by default, so a bus held low (an unpowered
-    // expander clamps SDA/SCL) would block a transfer, and the boot, forever. One OLED page
-    // takes about 3 ms.
+    // Async, like the PoC's OLED bus (KTD22): blocking transfers stalled the executor when
+    // Wi-Fi came up mid-transfer (THI-89 KTD1). Each transfer is bounded in `expander`.
     let i2c = I2c::new(
         peripherals.I2C0,
-        I2cConfig::default()
-            .with_frequency(Rate::from_khz(oled::calibration::I2C_KHZ))
-            .with_software_timeout(SoftwareTimeout::Transaction(
-                esp_hal::time::Duration::from_millis(20),
-            )),
+        I2cConfig::default().with_frequency(Rate::from_khz(oled::calibration::I2C_KHZ)),
     )
     .expect("I2C0 config")
     .with_sda(peripherals.GPIO22)
-    .with_scl(peripherals.GPIO20);
-    let i2c = I2C_BUS.init(RefCell::new(i2c));
+    .with_scl(peripherals.GPIO20)
+    .into_async();
+    let i2c = I2C_BUS.init(AsyncMutex::new(i2c));
     let expander = EXPANDER.init(Expander::new(i2c));
-    if expander.init() {
-        expander.reset_panels();
+    if expander.init().await {
+        expander.reset_panels().await;
     }
     let spi = Spi::new(
         peripherals.SPI2,
@@ -182,17 +174,24 @@ async fn main(spawner: Spawner) -> ! {
         Level::Low,
         OutputConfig::default(),
     )));
-    let mut key_a = KeyDisplay::new(bus, Key::A, expander, SharedPin::new(dc), SPI_BUF_A.take());
-    let mut key_b = KeyDisplay::new(bus, Key::B, expander, SharedPin::new(dc), SPI_BUF_B.take());
-    if let Some(key) = &mut key_a {
-        key.test_pattern("KEY A");
-    }
-    if let Some(key) = &mut key_b {
-        key.test_pattern("KEY B");
+    // A panel is set up only while the expander selects it; without the expander its CS
+    // would float, so the keys stay dark (KTD6).
+    let mut key_a = None;
+    let mut key_b = None;
+    for (key, slot, buffer, label) in [
+        (Key::A, &mut key_a, SPI_BUF_A.take(), "KEY A"),
+        (Key::B, &mut key_b, SPI_BUF_B.take(), "KEY B"),
+    ] {
+        if expander.present() && expander.select(key).await {
+            let mut panel = KeyDisplay::new(bus, SharedPin::new(dc), buffer);
+            panel.test_pattern(label);
+            expander.deselect().await;
+            *slot = Some(panel);
+        }
     }
 
     let mut oled = Oled::new(i2c, OLED_FRAME.take());
-    oled.init();
+    oled.init().await;
     oled.test_pattern();
     if let Err(e) = oled.flush().await {
         warn!("OLED test pattern not shown: {e:?}");
@@ -242,7 +241,12 @@ async fn main(spawner: Spawner) -> ! {
     Timer::after(TEST_PATTERN_TIME).await;
     link::run(
         stack,
-        link::Displays { key_a, key_b, oled },
+        link::Displays {
+            key_a,
+            key_b,
+            oled,
+            expander,
+        },
         session,
         link::Buffers {
             line: LINE_BUF.take(),
