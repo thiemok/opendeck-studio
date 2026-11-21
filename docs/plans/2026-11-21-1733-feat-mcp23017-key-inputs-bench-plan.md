@@ -27,7 +27,7 @@ execution: code
 
 ## Product Contract
 
-Product Contract preservation: changed R1, R2 and one Scope Boundary, user-visible only as "no separate baseline session before rewiring". R1: the numbers recorded on 2026-11-16 serve as the baseline, so the operator can rewire straight away. R2: the direct-pin reference comes from a bench-only wire in the same session, because CS lines can't be wired to two places. Scope: the OLED write becomes page-by-page for a mechanism reason (KTD1), not only if numbers demand it. Outstanding Questions are resolved in place by KTD1–KTD5.
+Product Contract preservation: changed R1, R2 and one Scope Boundary, user-visible only as "no separate baseline session before rewiring". R1: the numbers recorded on 2026-11-16 serve as the baseline, so the operator can rewire straight away. R2: the direct-pin reference comes from a bench-only wire in the same session, because CS lines can't be wired to two places. Scope: the OLED write becomes page-by-page for a mechanism reason (KTD1), not only if numbers demand it.
 
 ### Summary
 
@@ -43,7 +43,7 @@ The final 2×8 deck needs about 44 signals: CS and KEY for each of the 16 keys, 
 - **The work is measured on the bench in this run, not prepared for a later session.** (session-settled: user-directed — chosen over off-device preparation like PR #7: the Feather and the breakout are on hand.) Governs R1, R10.
 - **Only one MCP23017 is built.** The two-chip MCP23017 layout, the TCA8418 keypad scanner and the 74HC154 CS decoder are judged on paper from datasheets and these measurements. Only one breakout is on hand. Governs R11.
 - **The shared RST moves to the expander as well as both CS lines.** This frees GPIO15, a strapping pin, which the final board would rather not use. Governs R5.
-- **Debounce behaviour does not change.** The same 20 ms stable-time rule applies; only the place the levels are read from changes. Governs R6, R8.
+- **Debounce behaviour does not change.** The same 20 ms stable-time rule applies; only the place the levels are read from changes. Governs R4, R8.
 
 ### Requirements
 
@@ -110,8 +110,8 @@ The final 2×8 deck needs about 44 signals: CS and KEY for each of the 16 keys, 
 - KTD1. **The I²C bus becomes blocking and is shared by short, synchronous borrows; the OLED frame is written one 128-byte page at a time with a yield between pages.** Key draws run synchronously inside the link's line callback (`firmware/src/link.rs`, `Displays::bitmap`), so the CS write that brackets a draw can't await an async bus. Nothing awaits while it holds the bus, so no task ever finds it busy, and the borrow never holds a critical section across a transfer (Wi-Fi interrupts must keep running). One page is about 3 ms at 400 kHz, which is less than the 26 ms blocking SPI draw the executor already absorbs. This replaces the async half of the PoC plan's KTD22 and turns the "OLED holds the bus for 25 ms" risk into a wait of at most one page. Governs R3, R8, R10.
 - KTD2. **A minimal in-tree MCP23017 driver; the register logic lives in `deck-core`.** The deck needs only init, one port-B read and one port-A write, as the SH1106 needed only init and page writes (KTD22's reasoning). `deck-core` owns the register addresses, the init sequence, the port-A shadow (CS A, CS B, RST bits) and the mapping from a port-B byte to the five button levels, with host tests. The firmware sends the bytes. Port B: GPB0 KEY A, GPB1 KEY B, GPB2 encoder push, GPB3 BACK, GPB4 CONFIRM, all interrupt-on-change against the previous value, with pull-ups on the two key bits. Port A: GPA0 CS A, GPA1 CS B, GPA2 RST, outputs, written from a shadow so one bit never clobbers another. Governs R3, R4, R5.
 - KTD3. **CS is held low for a whole draw, not toggled per SPI transaction.** `KeyDisplay` gets a no-op CS for its SPI device and selects its key through the expander before a draw (test pattern, status, bitmap, blank) and deselects after. Per-transaction CS through `RefCellDevice` would cost two I²C writes for each of the 30-plus SPI transactions in a 128×128 frame. Per-draw CS costs two writes, about 0.15 ms. Only one key draws at a time, so this keeps AE3 true. The CS time falls inside the link's timed draw span, so the page-change log already measures its cost. Governs R5, R9.
-- KTD4. **The inputs task waits for the interrupt line to go low, then reads port B; while any button is still settling, it reads every 2 ms.** The interrupt goes to GPIO37, which is input-only, freed by CONFIRM, and free of the GPIO36/39 errata (PoC KTD25). The MCP23017's default push-pull active-low interrupt needs no pull-up. A level wait, not an edge wait, means an interrupt left asserted after a failed read wakes the task again instead of being lost. Reading port B clears the interrupt. The existing `Debouncer` runs unchanged on the levels; it needs samples until the level has been stable for 20 ms, hence the 2 ms polling while unsettled. Governs R4, R7, R8.
-- KTD5. **Edge-to-detection is timed from a bench-only reference wire: KEY A's switch is also wired to GPIO32, its old direct pin.** A task timestamps GPIO32's falling edge. The inputs task records the time from that edge to the first port-B read that shows KEY A pressed, and logs one line per press plus a median and maximum summary every 20 presses, reusing the `latency::Samples` window. The old direct path sampled every 2 ms, so its detection delay was at most 2 ms by construction. That is the R2 baseline, and the same session shows both. Without the wire, GPIO32 sits high on its pull-up and logs nothing, so the code can stay on main as bench instrumentation, like the page-change bench. Both pull-ups in parallel (ESP32 about 45 kΩ, MCP23017 about 100 kΩ) still read low when the switch closes. Governs R2, R10.
+- KTD4. **The inputs task waits for the interrupt line to go low, then reads port B; while any button is still settling, it reads every 2 ms.** The interrupt goes to GPIO37, which is input-only, freed by CONFIRM, and free of the GPIO36/39 errata (PoC KTD25). The MCP23017's default push-pull active-low interrupt needs no pull-up. A level wait, not an edge wait, means an interrupt left asserted after a failed read wakes the task again instead of being lost. Reading port B clears the interrupt. The existing `Debouncer` runs unchanged on the levels; it needs samples until the level has been stable for 20 ms, hence the 2 ms polling while unsettled. A failed read does not clear the latched interrupt, and GPIO37 floats without the expander, so after a failed read the task logs once per run of failures and waits 100 ms before listening again instead of spinning. Governs R4, R7, R8.
+- KTD5. **Edge-to-detection is timed from a bench-only reference wire: KEY A's switch is also wired to GPIO32, its old direct pin, and the edge is timestamped in a GPIO interrupt handler.** A task-level timestamp would be wrong: key draws (26–66 ms) and OLED page writes run synchronously on the same executor, so a task could only stamp the edge after the block ends, hiding exactly the wait R10 measures. The handler (esp-hal's user GPIO interrupt handler) stores `Instant::now()` in an atomic slot on GPIO32's falling edge and clears only GPIO32's status, leaving GPIO37's async wait alone. The inputs task records the time from that stamp to the first port-B read that shows KEY A pressed, and logs one line per press plus a median and maximum summary every 20 presses, reusing the `latency::Samples` window. The old direct path sampled every 2 ms, so its detection delay was at most 2 ms plus any synchronous key draw or OLED write running at the edge. That is the R2 baseline, stated as such in the U5 note. Without the wire, GPIO32 sits high on its pull-up and logs nothing, so the code can stay on main as bench instrumentation, like the page-change bench. Both pull-ups in parallel (ESP32 about 45 kΩ, MCP23017 about 100 kΩ) still read low when the switch closes. Governs R2, R10.
 - KTD6. **A missing expander is detected once at boot; key draws are then skipped and inputs stay quiet.** If the init write fails, the deck logs `MCP23017 not found at 0x20`, skips key panel init and every key draw (the CS lines would float), and parks the inputs task. The OLED, the encoder and the link carry on. A failing read or write later is logged and retried on the next interrupt or draw. This is the smallest form of R7; hot-plug recovery is out of scope. Governs R7.
 
 ### High-Level Technical Design
@@ -126,7 +126,7 @@ flowchart TB
   C --> D[Select key A, init panel, test pattern, deselect; same for key B]
   D --> E[OLED init and test pattern, page by page]
   X --> E
-  E --> F[Spawn inputs task on INT GPIO37, reference task on GPIO32, encoder task]
+  E --> F[Spawn inputs task on INT GPIO37 and the encoder task; GPIO32 edge handler installed]
   F --> G[Link runs; each key draw is select, draw over SPI, deselect]
 ```
 
@@ -174,7 +174,7 @@ U1 first and on its own commit (operator priority). U2 before U3 and U4. U3 befo
 - `docs/notes/deck-wiring.svg`
 
 **Approach:**
-1. Add an MCP23017 section to the wiring tables: breakout pin to Feather pin (VIN to 3V, GND, SDA GPIO22, SCL GPIO20, INTB GPIO37, RST to 3V, address jumpers open), and expander pin to key or module pin, per the KTD2 port map and the HTD pin table.
+1. Add an MCP23017 section to the wiring tables: breakout pin to Feather pin (VIN to 3V, GND, SDA GPIO22, SCL GPIO20, INTB GPIO37, RST (chip reset, not the keys' RST) to 3V, address jumpers open), and expander pin to key or module pin, per the KTD2 port map and the High-Level Technical Design pin table.
 2. Update the key and module tables so KEY, CS, RST and the three module buttons point at expander pins. Mark the KEY A to GPIO32 wire as bench-only (KTD5). List the freed GPIOs.
 3. Redraw the SVG with a third box for the breakout between the Feather and the peripherals, signals routed through it, and the reference wire dashed and labelled "bench only".
 4. Update the status block: the expander wiring dated 2026-11-21, pending the bench check.
@@ -183,7 +183,7 @@ U1 first and on its own commit (operator priority). U2 before U3 and U4. U3 befo
 
 **Test scenarios:** Test expectation: none -- documentation only; checked by the operator wiring from it.
 
-**Verification:** Every pin in the tables matches the HTD pin table and the SVG. No signal appears on two ESP32 pins except the marked reference wire. The SVG renders in a browser.
+**Verification:** Every pin in the tables matches the High-Level Technical Design pin table and the SVG. No signal appears on two ESP32 pins except the marked reference wire. The SVG renders in a browser.
 
 ### U2. MCP23017 register logic in deck-core
 
@@ -226,11 +226,11 @@ U1 first and on its own commit (operator priority). U2 before U3 and U4. U3 befo
 - `firmware/src/main.rs`
 
 **Approach:**
-1. Make I²C0 blocking and share it through a borrow type that is only ever held by synchronous code (KTD1). The SPI bus's `StaticCell<RefCell<…>>` pattern in `main.rs` is the model, but the shared handle must be usable from spawned tasks; if task arguments must be `Send`, wrap it so a borrow never enters a critical section for the length of a transfer.
+1. Make I²C0 blocking and share it through a borrow type that is only ever held by synchronous code (KTD1). The SPI bus's `StaticCell<RefCell<…>>` pattern in `main.rs` is the model; embassy-executor 0.10's `Spawner::spawn` accepts non-`Send` task arguments, so the `&'static RefCell` can be passed to spawned tasks. The clock stays the one `oled::calibration::I2C_KHZ` constant; the 100 kHz stop-condition check is a rebuild with it changed.
 2. `oled.rs`: write the frame one page at a time, yielding to the executor between pages, and keep KTD26's error handling.
 3. `expander.rs`: init, port-B read, and port-A shadow writes on the shared bus, using U2's bytes. Expose select, deselect and reset for the keys, and a read for the inputs task.
 4. `display.rs`: replace the per-key `Output` CS with a no-op pin, and bracket every public drawing method with select and deselect through the expander (KTD3). `reset_panels` pulses RST through the expander.
-5. `main.rs`: new boot order per the HTD diagram; free GPIO15, GPIO25, GPIO26, GPIO33, GPIO36 and GPIO39; skip key init when the expander is missing (KTD6).
+5. `main.rs`: new boot order per the High-Level Technical Design diagram; free GPIO15, GPIO25, GPIO26, GPIO33, GPIO36 and GPIO39; skip key init when the expander is missing (KTD6).
 6. `link.rs`: skip key draws when the expander is missing; keep the CS time inside the timed draw span.
 
 **Patterns to follow:** `display::SharedPin` and the `RefCellDevice` sharing (PoC KTD21); `Oled::init`'s log-and-continue on failure (KTD26).
@@ -260,15 +260,17 @@ U1 first and on its own commit (operator priority). U2 before U3 and U4. U3 befo
 
 **Approach:**
 1. `inputs.rs`: replace the five-pin sampler with KTD4's loop: wait for GPIO37 low, read port B, feed the five debouncers, and while any is unsettled read every 2 ms. Edges go to `EDGES` exactly as today.
-2. A small reference task timestamps GPIO32 falling edges into a shared slot (KTD5). The inputs task turns the first port-B read showing KEY A pressed after a timestamp into one sample, logs `KEY A edge to expander read: N µs`, and logs a median and maximum every 20 samples.
+2. A GPIO interrupt handler timestamps GPIO32 falling edges into an atomic slot (KTD5). The inputs task turns the first port-B read showing KEY A pressed after a timestamp into one sample, logs `KEY A edge to expander read: N µs`, and logs a median and maximum every 20 samples.
 3. Encoder phases and PCNT stay as they are (R6).
-4. If a read fails, log it and wait for the next interrupt (KTD6).
+4. If a read fails, log it once per run of failures and back off 100 ms before waiting again (KTD4, KTD6).
 
 **Patterns to follow:** The current `inputs_task` structure and its log wording (`KeyA pressed`), which the calibration runbook in `docs/notes/deck-wiring.md` relies on; `record_round_trip` in `firmware/src/link.rs` for sample and summary logging.
 
 **Test scenarios:**
 - Covers AE1. While the encoder is spun with the OLED redrawing, 20 KEY A presses log exactly 20 presses and 20 releases and 20 edge-to-detection samples.
-- 20 presses on each of KEY B, encoder push, BACK and CONFIRM log exactly one press and one release each.
+- 20 presses on each of KEY B, encoder push, BACK and CONFIRM log exactly one press and one release each, with the OLED redrawing.
+- Covers R8. During page changes (both keys receiving images), 20 presses on each of the five buttons log exactly 20 presses and 20 releases each.
+- With the expander unplugged at runtime, the log shows one failure line per run of failures, not a flood, and the encoder and link keep working.
 - Holding two buttons and releasing them in turn logs each edge once, in order.
 - With the reference wire removed, presses work and no edge-to-detection lines appear.
 
@@ -312,4 +314,4 @@ U1 first and on its own commit (operator priority). U2 before U3 and U4. U3 befo
 - All Verification Contract commands pass.
 - The operator has reported the U3 and U4 bench checks, and U5's note holds the R10 numbers.
 - The THI-83 recommendation is posted.
-- No dead code from abandoned approaches is left in the diff; the old direct-pin setup is removed, not commented out.
+- No dead code from abandoned approaches is left in the diff; the old direct-pin setup is removed, not commented out. The GPIO32 reference handler (KTD5) is the one intended exception and stays as bench instrumentation.
