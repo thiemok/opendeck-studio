@@ -15,15 +15,15 @@ How the two Waveshare 0.85" ScreenKey Module B keys, the 1.3" OLED/encoder modul
 
 ### MCP23017 expander
 
-The Adafruit MCP23017 breakout shares I²C0 with the OLED at address 0x20 (address pins D0–D2 and the +1/+2/+4 jumpers left open). Power and I²C come through a STEMMA QT cable from the Feather's own STEMMA QT port to one of the breakout's two QT ports. The OLED/encoder module is chained off the breakout's other QT port, so it shares the same 3.3 V, GND, SDA (GPIO22) and SCL (GPIO20). The Feather powers its QT port only while GPIO2 (`NEOPIXEL_I2C_POWER`) is high, and the firmware sets it at boot. An unpowered breakout clamps SDA and SCL low, and every I²C transfer then times out. The breakout already has 10 kΩ pull-ups on SDA and SCL. The breakout's silkscreen names the expander pins A0–A7 and B0–B7 (GPA0–GPA7 and GPB0–GPB7 in the datasheet); they are not the Feather's A0–A5. A7 and B7 are output-only on current chips, so nothing is wired to them.
+The Adafruit MCP23017 breakout shares I²C0 with the OLED at address 0x20 (address pins D0–D2 and the +1/+2/+4 jumpers left open). Power and I²C come from the Feather's header pins: 3V, GND, GPIO22 (SDA) and GPIO20 (SCL), with plain wires or a STEMMA-QT-to-breadboard cable plugged into the breakout. Don't use the Feather's own STEMMA QT port. Its 3.3 V is switched by GPIO2, which the firmware doesn't drive. The OLED/encoder module is chained off the breakout's QT port, so it shares the same 3.3 V, GND, SDA and SCL. The breakout already has 10 kΩ pull-ups on SDA and SCL. The breakout's silkscreen names the expander pins A0–A7 and B0–B7 (GPA0–GPA7 and GPB0–GPB7 in the datasheet); they are not the Feather's A0–A5. A7 and B7 are output-only on current chips, so nothing is wired to them.
 
 | Breakout pin | Feather ESP32 V2 | Wire | Notes |
 |---|---|---|---|
-| VIN | QT port 3.3 V | QT cable | Switched by GPIO2, which the firmware drives high |
-| GND | GND | QT cable | |
-| SDA | GPIO22 (SDA) | QT cable | Shared with the OLED |
-| SCL | GPIO20 (SCL) | QT cable | Shared with the OLED |
-| IB (INTB) | GPIO37 | header wire | Port B changed; push-pull, active low. Input-only pin. |
+| VIN | 3V | header wire | 3.3 V only |
+| GND | GND | header wire | |
+| SDA | GPIO22 (SDA) | header wire | Shared with the OLED |
+| SCL | GPIO20 (SCL) | header wire | Shared with the OLED |
+| IB (INTB) | GPIO37 | header wire | Port B changed; push-pull, active low. Input-only pin. If it is missing, GPIO37 floats low; the firmware warns and polls every 2 ms instead. |
 | RST | 3V | header wire | Keeps the expander out of reset; Adafruit's guide doesn't say the board pulls it up |
 | IA (INTA), A3–A7, B5–B7 | — | — | Unused |
 
@@ -64,7 +64,7 @@ The module has its own 10 kΩ pull-ups on every signal, so the input-only pins w
 
 | Module pin | Feather ESP32 V2 | Notes |
 |---|---|---|
-| VCC | QT chain 3.3 V | Through the expander's second QT port; 3.3 V keeps the module's pull-ups at ESP32 levels |
+| VCC | QT chain 3.3 V | Through the expander's QT port; 3.3 V keeps the module's pull-ups at ESP32 levels |
 | GND | QT chain GND | |
 | SDA | QT chain, GPIO22 (SDA) | I²C0, shared with the expander |
 | SCL | QT chain, GPIO20 (SCL) | I²C0, shared with the expander |
