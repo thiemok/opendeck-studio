@@ -1,165 +1,210 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="1170" viewBox="0 0 960 1170" font-family="Helvetica, Arial, sans-serif" role="img" aria-labelledby="title desc">
-  <title id="title">Deck wiring (P3): Feather ESP32 V2 to two ScreenKeys and the OLED/encoder module</title>
-  <desc id="desc">Both Waveshare ScreenKeys share 3V, GND, MO (GPIO19) to DIN, SCK (GPIO5) to SCLK, GPIO27 to DC, GPIO15 to RST and GPIO14 to PWM. Key A uses GPIO33 for CS and GPIO32 for KEY; key B uses GPIO26 for CS and GPIO25 for KEY. The OLED/encoder module takes 3V to VCC, GND, GPIO22 to SDA, GPIO20 to SCL, GPIO34 to TRA, GPIO4 to TRB, GPIO36 to PSH, GPIO39 to BAK and GPIO37 to CON.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1300" viewBox="0 0 1000 1300" font-family="Helvetica, Arial, sans-serif" role="img" aria-labelledby="title desc">
+  <title id="title">Deck wiring (THI-89): Feather ESP32 V2, MCP23017 expander, two ScreenKeys and the OLED/encoder module</title>
+  <desc id="desc">Both ScreenKeys take 3V, GND, MO (GPIO19) to DIN, SCK (GPIO5) to SCLK, GPIO27 to DC and GPIO14 to PWM directly from the Feather. The MCP23017 breakout takes 3V to VIN and RST, GND, GPIO22 to SDA, GPIO20 to SCL, and its INTB goes to GPIO37. Expander GPA0 drives CS of key A, GPA1 CS of key B, GPA2 the shared RST. GPB0 reads KEY of key A, GPB1 KEY of key B, GPB2 the encoder push PSH, GPB3 BAK, GPB4 CON. The OLED/encoder module takes 3V, GND, GPIO22 SDA, GPIO20 SCL, GPIO34 TRA and GPIO4 TRB directly. Bench only: KEY of key A is also wired to GPIO32 as a timing reference.</desc>
 
   <!-- Opaque background so the diagram reads the same in light and dark viewers. -->
-  <rect x="0" y="0" width="960" height="1170" rx="12" fill="#ffffff"/>
+  <rect x="0" y="0" width="1000" height="1300" rx="12" fill="#ffffff"/>
 
-  <text x="480" y="38" text-anchor="middle" font-size="22" font-weight="700" fill="#1a1a1a">Deck wiring (P3): two ScreenKeys and the OLED/encoder module</text>
-  <text x="480" y="62" text-anchor="middle" font-size="13" fill="#555">Source of truth: the pin tables in deck-wiring.md and firmware/src/main.rs. Update this diagram whenever either changes.</text>
+  <text x="500" y="38" text-anchor="middle" font-size="22" font-weight="700" fill="#1a1a1a">Deck wiring (THI-89): keys and buttons through the MCP23017</text>
+  <text x="500" y="62" text-anchor="middle" font-size="13" fill="#555">Source of truth: the pin tables in deck-wiring.md and firmware/src/main.rs. Update this diagram whenever either changes.</text>
 
   <!-- Feather ESP32 V2 -->
-  <rect x="60" y="110" width="270" height="940" rx="14" fill="#e9f1fb" stroke="#3a4a5c" stroke-width="2"/>
-  <rect x="155" y="92" width="80" height="22" rx="5" fill="#b9c3cf" stroke="#3a4a5c" stroke-width="1.5"/>
-  <text x="195" y="108" text-anchor="middle" font-size="11" font-weight="700" fill="#1a1a1a">USB-C</text>
-  <text x="195" y="140" text-anchor="middle" font-size="16" font-weight="700" fill="#1a1a1a">Adafruit Feather</text>
-  <text x="195" y="160" text-anchor="middle" font-size="16" font-weight="700" fill="#1a1a1a">ESP32 V2</text>
-  <text x="195" y="1030" text-anchor="middle" font-size="11" fill="#555">labels as on the silkscreen;</text>
-  <text x="195" y="1044" text-anchor="middle" font-size="11" fill="#555">grouped by signal, not position</text>
+  <rect x="40" y="120" width="220" height="1025" rx="14" fill="#e9f1fb" stroke="#3a4a5c" stroke-width="2"/>
+  <rect x="110" y="102" width="80" height="22" rx="5" fill="#b9c3cf" stroke="#3a4a5c" stroke-width="1.5"/>
+  <text x="150" y="118" text-anchor="middle" font-size="11" font-weight="700" fill="#1a1a1a">USB-C</text>
+  <text x="150" y="150" text-anchor="middle" font-size="16" font-weight="700" fill="#1a1a1a">Adafruit Feather</text>
+  <text x="150" y="170" text-anchor="middle" font-size="16" font-weight="700" fill="#1a1a1a">ESP32 V2</text>
+  <text x="150" y="1136" text-anchor="middle" font-size="11" fill="#555">silkscreen labels, grouped by signal</text>
+
+  <!-- MCP23017 breakout -->
+  <rect x="400" y="440" width="180" height="460" rx="14" fill="#fbeef3" stroke="#6b3a52" stroke-width="2"/>
+  <text x="490" y="464" text-anchor="middle" font-size="16" font-weight="700" fill="#1a1a1a">Adafruit MCP23017</text>
+  <text x="490" y="482" text-anchor="middle" font-size="13" fill="#1a1a1a">I²C 0x20 (jumpers open)</text>
+  <text x="490" y="720" text-anchor="middle" font-size="11" fill="#555">GPA7 and GPB7: output only,</text>
+  <text x="490" y="734" text-anchor="middle" font-size="11" fill="#555">leave unused</text>
+  <text x="490" y="888" text-anchor="middle" font-size="11" fill="#555">use the header, not STEMMA QT</text>
 
   <!-- ScreenKeys A and B -->
-  <rect x="630" y="110" width="270" height="490" rx="14" fill="#f3f1ec" stroke="#4d4636" stroke-width="2"/>
-  <text x="765" y="140" text-anchor="middle" font-size="16" font-weight="700" fill="#1a1a1a">2 × Waveshare 0.85" ScreenKey</text>
-  <text x="765" y="160" text-anchor="middle" font-size="16" font-weight="700" fill="#1a1a1a">Module B (ST7735)</text>
-  <text x="765" y="580" text-anchor="middle" font-size="11" fill="#555">"A+B": wire both keys' pins to it</text>
+  <rect x="720" y="120" width="240" height="570" rx="14" fill="#f3f1ec" stroke="#4d4636" stroke-width="2"/>
+  <text x="840" y="150" text-anchor="middle" font-size="16" font-weight="700" fill="#1a1a1a">2 × Waveshare 0.85"</text>
+  <text x="840" y="170" text-anchor="middle" font-size="16" font-weight="700" fill="#1a1a1a">ScreenKey Module B</text>
+  <text x="840" y="680" text-anchor="middle" font-size="11" fill="#555">"A+B": wire both keys' pins to it</text>
 
   <!-- OLED/encoder module -->
-  <rect x="630" y="640" width="270" height="410" rx="14" fill="#eef6ee" stroke="#3d5a3d" stroke-width="2"/>
-  <text x="765" y="670" text-anchor="middle" font-size="16" font-weight="700" fill="#1a1a1a">1.3" OLED + EC11 module</text>
-  <text x="765" y="690" text-anchor="middle" font-size="13" fill="#1a1a1a">SH1106 at 0x3C, own pull-ups</text>
-  <text x="765" y="1036" text-anchor="middle" font-size="11" fill="#555">header labels as on the front silkscreen</text>
+  <rect x="720" y="705" width="240" height="440" rx="14" fill="#eef6ee" stroke="#3d5a3d" stroke-width="2"/>
+  <text x="840" y="731" text-anchor="middle" font-size="16" font-weight="700" fill="#1a1a1a">1.3" OLED + EC11 module</text>
+  <text x="840" y="751" text-anchor="middle" font-size="13" fill="#1a1a1a">SH1106 at 0x3C, own pull-ups</text>
+  <text x="840" y="1136" text-anchor="middle" font-size="11" fill="#555">header labels as on the front silkscreen</text>
 
-  <!-- Wires to the keys -->
+  <!-- Feather straight to the keys -->
   <g font-size="13">
-    <line x1="330" y1="200" x2="630" y2="200" stroke="#d62728" stroke-width="4" stroke-linecap="round"/>
-    <circle cx="330" cy="200" r="6" fill="#d62728"/><circle cx="630" cy="200" r="6" fill="#d62728"/>
-    <text x="315" y="205" text-anchor="end" font-weight="700" fill="#1a1a1a">3V</text>
-    <text x="645" y="205" font-weight="700" fill="#1a1a1a">VCC (A+B)</text>
-    <text x="480" y="192" text-anchor="middle" fill="#333">3.3 V power</text>
+    <line x1="260" y1="210" x2="720" y2="210" stroke="#d62728" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="260" cy="210" r="6" fill="#d62728"/><circle cx="720" cy="210" r="6" fill="#d62728"/>
+    <text x="245" y="215" text-anchor="end" font-weight="700" fill="#1a1a1a">3V</text>
+    <text x="735" y="215" font-weight="700" fill="#1a1a1a">VCC (A+B)</text>
+    <text x="490" y="202" text-anchor="middle" fill="#333">3.3 V power</text>
 
-    <line x1="330" y1="236" x2="630" y2="236" stroke="#222222" stroke-width="4" stroke-linecap="round"/>
-    <circle cx="330" cy="236" r="6" fill="#222222"/><circle cx="630" cy="236" r="6" fill="#222222"/>
-    <text x="315" y="241" text-anchor="end" font-weight="700" fill="#1a1a1a">GND</text>
-    <text x="645" y="241" font-weight="700" fill="#1a1a1a">GND (A+B)</text>
-    <text x="480" y="228" text-anchor="middle" fill="#333">ground</text>
+    <line x1="260" y1="246" x2="720" y2="246" stroke="#222222" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="260" cy="246" r="6" fill="#222222"/><circle cx="720" cy="246" r="6" fill="#222222"/>
+    <text x="245" y="251" text-anchor="end" font-weight="700" fill="#1a1a1a">GND</text>
+    <text x="735" y="251" font-weight="700" fill="#1a1a1a">GND (A+B)</text>
+    <text x="490" y="238" text-anchor="middle" fill="#333">ground</text>
 
-    <line x1="330" y1="272" x2="630" y2="272" stroke="#1f77b4" stroke-width="4" stroke-linecap="round"/>
-    <circle cx="330" cy="272" r="6" fill="#1f77b4"/><circle cx="630" cy="272" r="6" fill="#1f77b4"/>
-    <text x="315" y="277" text-anchor="end" font-weight="700" fill="#1a1a1a">MO · GPIO19</text>
-    <text x="645" y="277" font-weight="700" fill="#1a1a1a">DIN (A+B)</text>
-    <text x="480" y="264" text-anchor="middle" fill="#333">SPI data (MOSI)</text>
+    <line x1="260" y1="282" x2="720" y2="282" stroke="#1f77b4" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="260" cy="282" r="6" fill="#1f77b4"/><circle cx="720" cy="282" r="6" fill="#1f77b4"/>
+    <text x="245" y="287" text-anchor="end" font-weight="700" fill="#1a1a1a">MO · GPIO19</text>
+    <text x="735" y="287" font-weight="700" fill="#1a1a1a">DIN (A+B)</text>
+    <text x="490" y="274" text-anchor="middle" fill="#333">SPI data (MOSI)</text>
 
-    <line x1="330" y1="308" x2="630" y2="308" stroke="#d9a400" stroke-width="4" stroke-linecap="round"/>
-    <circle cx="330" cy="308" r="6" fill="#d9a400"/><circle cx="630" cy="308" r="6" fill="#d9a400"/>
-    <text x="315" y="313" text-anchor="end" font-weight="700" fill="#1a1a1a">SCK · GPIO5 †</text>
-    <text x="645" y="313" font-weight="700" fill="#1a1a1a">SCLK (A+B)</text>
-    <text x="480" y="300" text-anchor="middle" fill="#333">SPI clock</text>
+    <line x1="260" y1="318" x2="720" y2="318" stroke="#d9a400" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="260" cy="318" r="6" fill="#d9a400"/><circle cx="720" cy="318" r="6" fill="#d9a400"/>
+    <text x="245" y="323" text-anchor="end" font-weight="700" fill="#1a1a1a">SCK · GPIO5 †</text>
+    <text x="735" y="323" font-weight="700" fill="#1a1a1a">SCLK (A+B)</text>
+    <text x="490" y="310" text-anchor="middle" fill="#333">SPI clock</text>
 
-    <line x1="330" y1="344" x2="630" y2="344" stroke="#2ca02c" stroke-width="4" stroke-linecap="round"/>
-    <circle cx="330" cy="344" r="6" fill="#2ca02c"/><circle cx="630" cy="344" r="6" fill="#2ca02c"/>
-    <text x="315" y="349" text-anchor="end" font-weight="700" fill="#1a1a1a">27 · GPIO27</text>
-    <text x="645" y="349" font-weight="700" fill="#1a1a1a">DC (A+B)</text>
-    <text x="480" y="336" text-anchor="middle" fill="#333">data / command</text>
+    <line x1="260" y1="354" x2="720" y2="354" stroke="#2ca02c" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="260" cy="354" r="6" fill="#2ca02c"/><circle cx="720" cy="354" r="6" fill="#2ca02c"/>
+    <text x="245" y="359" text-anchor="end" font-weight="700" fill="#1a1a1a">27 · GPIO27</text>
+    <text x="735" y="359" font-weight="700" fill="#1a1a1a">DC (A+B)</text>
+    <text x="490" y="346" text-anchor="middle" fill="#333">data / command</text>
 
-    <line x1="330" y1="380" x2="630" y2="380" stroke="#9467bd" stroke-width="4" stroke-linecap="round"/>
-    <circle cx="330" cy="380" r="6" fill="#9467bd"/><circle cx="630" cy="380" r="6" fill="#9467bd"/>
-    <text x="315" y="385" text-anchor="end" font-weight="700" fill="#1a1a1a">15 · GPIO15 †</text>
-    <text x="645" y="385" font-weight="700" fill="#1a1a1a">RST (A+B)</text>
-    <text x="480" y="372" text-anchor="middle" fill="#333">reset (active low)</text>
+    <line x1="260" y1="390" x2="720" y2="390" stroke="#8c564b" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="260" cy="390" r="6" fill="#8c564b"/><circle cx="720" cy="390" r="6" fill="#8c564b"/>
+    <text x="245" y="395" text-anchor="end" font-weight="700" fill="#1a1a1a">14 · GPIO14</text>
+    <text x="735" y="395" font-weight="700" fill="#1a1a1a">PWM (A+B)</text>
+    <text x="490" y="382" text-anchor="middle" fill="#333">backlight (driven high)</text>
 
-    <line x1="330" y1="416" x2="630" y2="416" stroke="#8c564b" stroke-width="4" stroke-linecap="round"/>
-    <circle cx="330" cy="416" r="6" fill="#8c564b"/><circle cx="630" cy="416" r="6" fill="#8c564b"/>
-    <text x="315" y="421" text-anchor="end" font-weight="700" fill="#1a1a1a">14 · GPIO14</text>
-    <text x="645" y="421" font-weight="700" fill="#1a1a1a">PWM (A+B)</text>
-    <text x="480" y="408" text-anchor="middle" fill="#333">backlight (driven high)</text>
-
-    <line x1="330" y1="452" x2="630" y2="452" stroke="#ff7f0e" stroke-width="4" stroke-linecap="round"/>
-    <circle cx="330" cy="452" r="6" fill="#ff7f0e"/><circle cx="630" cy="452" r="6" fill="#ff7f0e"/>
-    <text x="315" y="457" text-anchor="end" font-weight="700" fill="#1a1a1a">33 · GPIO33</text>
-    <text x="645" y="457" font-weight="700" fill="#1a1a1a">CS (key A)</text>
-    <text x="480" y="444" text-anchor="middle" fill="#333">chip select, key A</text>
-
-    <line x1="330" y1="488" x2="630" y2="488" stroke="#13a3b5" stroke-width="4" stroke-linecap="round"/>
-    <circle cx="330" cy="488" r="6" fill="#13a3b5"/><circle cx="630" cy="488" r="6" fill="#13a3b5"/>
-    <text x="315" y="493" text-anchor="end" font-weight="700" fill="#1a1a1a">32 · GPIO32</text>
-    <text x="645" y="493" font-weight="700" fill="#1a1a1a">KEY (key A)</text>
-    <text x="480" y="480" text-anchor="middle" fill="#333">switch, key A (internal pull-up)</text>
-
-    <line x1="330" y1="524" x2="630" y2="524" stroke="#ff7f0e" stroke-width="4" stroke-linecap="round" stroke-dasharray="10 6"/>
-    <circle cx="330" cy="524" r="6" fill="#ff7f0e"/><circle cx="630" cy="524" r="6" fill="#ff7f0e"/>
-    <text x="315" y="529" text-anchor="end" font-weight="700" fill="#1a1a1a">A0 · GPIO26</text>
-    <text x="645" y="529" font-weight="700" fill="#1a1a1a">CS (key B)</text>
-    <text x="480" y="516" text-anchor="middle" fill="#333">chip select, key B</text>
-
-    <line x1="330" y1="560" x2="630" y2="560" stroke="#13a3b5" stroke-width="4" stroke-linecap="round" stroke-dasharray="10 6"/>
-    <circle cx="330" cy="560" r="6" fill="#13a3b5"/><circle cx="630" cy="560" r="6" fill="#13a3b5"/>
-    <text x="315" y="565" text-anchor="end" font-weight="700" fill="#1a1a1a">A1 · GPIO25</text>
-    <text x="645" y="565" font-weight="700" fill="#1a1a1a">KEY (key B)</text>
-    <text x="480" y="552" text-anchor="middle" fill="#333">switch, key B (internal pull-up)</text>
+    <line x1="260" y1="426" x2="720" y2="426" stroke="#7f7f7f" stroke-width="3" stroke-linecap="round" stroke-dasharray="10 6"/>
+    <circle cx="260" cy="426" r="6" fill="#7f7f7f"/><circle cx="720" cy="426" r="6" fill="#7f7f7f"/>
+    <text x="245" y="431" text-anchor="end" font-weight="700" fill="#1a1a1a">32 · GPIO32</text>
+    <text x="735" y="431" font-weight="700" fill="#1a1a1a">KEY (key A), 2nd wire</text>
+    <text x="490" y="418" text-anchor="middle" fill="#333">bench only: timing reference</text>
   </g>
 
-  <!-- Wires to the OLED/encoder module (front header order: CON SDA SCL PSH TRA TRB BAK GND VCC) -->
+  <!-- Feather to the MCP23017 -->
   <g font-size="13">
-    <line x1="330" y1="720" x2="630" y2="720" stroke="#d62728" stroke-width="4" stroke-linecap="round"/>
-    <circle cx="330" cy="720" r="6" fill="#d62728"/><circle cx="630" cy="720" r="6" fill="#d62728"/>
-    <text x="315" y="725" text-anchor="end" font-weight="700" fill="#1a1a1a">3V</text>
-    <text x="645" y="725" font-weight="700" fill="#1a1a1a">VCC</text>
-    <text x="480" y="712" text-anchor="middle" fill="#333">3.3 V: keeps its pull-ups at ESP32 levels</text>
+    <line x1="260" y1="510" x2="400" y2="510" stroke="#d62728" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="260" cy="510" r="6" fill="#d62728"/><circle cx="400" cy="510" r="6" fill="#d62728"/>
+    <text x="245" y="515" text-anchor="end" font-weight="700" fill="#1a1a1a">3V</text>
+    <text x="412" y="515" font-weight="700" fill="#1a1a1a">VIN</text>
 
-    <line x1="330" y1="756" x2="630" y2="756" stroke="#222222" stroke-width="4" stroke-linecap="round"/>
-    <circle cx="330" cy="756" r="6" fill="#222222"/><circle cx="630" cy="756" r="6" fill="#222222"/>
-    <text x="315" y="761" text-anchor="end" font-weight="700" fill="#1a1a1a">GND</text>
-    <text x="645" y="761" font-weight="700" fill="#1a1a1a">GND</text>
-    <text x="480" y="748" text-anchor="middle" fill="#333">ground</text>
+    <line x1="260" y1="546" x2="400" y2="546" stroke="#222222" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="260" cy="546" r="6" fill="#222222"/><circle cx="400" cy="546" r="6" fill="#222222"/>
+    <text x="245" y="551" text-anchor="end" font-weight="700" fill="#1a1a1a">GND</text>
+    <text x="412" y="551" font-weight="700" fill="#1a1a1a">GND</text>
 
-    <line x1="330" y1="792" x2="630" y2="792" stroke="#1f77b4" stroke-width="4" stroke-linecap="round"/>
-    <circle cx="330" cy="792" r="6" fill="#1f77b4"/><circle cx="630" cy="792" r="6" fill="#1f77b4"/>
-    <text x="315" y="797" text-anchor="end" font-weight="700" fill="#1a1a1a">SDA · GPIO22</text>
-    <text x="645" y="797" font-weight="700" fill="#1a1a1a">SDA</text>
-    <text x="480" y="784" text-anchor="middle" fill="#333">I²C data</text>
+    <line x1="260" y1="582" x2="400" y2="582" stroke="#1f77b4" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="260" cy="582" r="6" fill="#1f77b4"/><circle cx="400" cy="582" r="6" fill="#1f77b4"/>
+    <text x="245" y="587" text-anchor="end" font-weight="700" fill="#1a1a1a">SDA · GPIO22</text>
+    <text x="412" y="587" font-weight="700" fill="#1a1a1a">SDA</text>
 
-    <line x1="330" y1="828" x2="630" y2="828" stroke="#d9a400" stroke-width="4" stroke-linecap="round"/>
-    <circle cx="330" cy="828" r="6" fill="#d9a400"/><circle cx="630" cy="828" r="6" fill="#d9a400"/>
-    <text x="315" y="833" text-anchor="end" font-weight="700" fill="#1a1a1a">SCL · GPIO20</text>
-    <text x="645" y="833" font-weight="700" fill="#1a1a1a">SCL</text>
-    <text x="480" y="820" text-anchor="middle" fill="#333">I²C clock</text>
+    <line x1="260" y1="618" x2="400" y2="618" stroke="#d9a400" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="260" cy="618" r="6" fill="#d9a400"/><circle cx="400" cy="618" r="6" fill="#d9a400"/>
+    <text x="245" y="623" text-anchor="end" font-weight="700" fill="#1a1a1a">SCL · GPIO20</text>
+    <text x="412" y="623" font-weight="700" fill="#1a1a1a">SCL</text>
 
-    <line x1="330" y1="864" x2="630" y2="864" stroke="#2ca02c" stroke-width="4" stroke-linecap="round"/>
-    <circle cx="330" cy="864" r="6" fill="#2ca02c"/><circle cx="630" cy="864" r="6" fill="#2ca02c"/>
-    <text x="315" y="869" text-anchor="end" font-weight="700" fill="#1a1a1a">A2 · GPIO34 ‡</text>
-    <text x="645" y="869" font-weight="700" fill="#1a1a1a">TRA</text>
-    <text x="480" y="856" text-anchor="middle" fill="#333">encoder phase A (PCNT)</text>
+    <line x1="260" y1="654" x2="400" y2="654" stroke="#e377c2" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="260" cy="654" r="6" fill="#e377c2"/><circle cx="400" cy="654" r="6" fill="#e377c2"/>
+    <text x="245" y="659" text-anchor="end" font-weight="700" fill="#1a1a1a">37 · GPIO37 ‡</text>
+    <text x="412" y="659" font-weight="700" fill="#1a1a1a">INTB</text>
 
-    <line x1="330" y1="900" x2="630" y2="900" stroke="#2ca02c" stroke-width="4" stroke-linecap="round"/>
-    <circle cx="330" cy="900" r="6" fill="#2ca02c"/><circle cx="630" cy="900" r="6" fill="#2ca02c"/>
-    <text x="315" y="905" text-anchor="end" font-weight="700" fill="#1a1a1a">A5 · GPIO4</text>
-    <text x="645" y="905" font-weight="700" fill="#1a1a1a">TRB</text>
-    <text x="480" y="892" text-anchor="middle" fill="#333">encoder phase B (PCNT)</text>
+    <line x1="260" y1="690" x2="400" y2="690" stroke="#d62728" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="260" cy="690" r="6" fill="#d62728"/><circle cx="400" cy="690" r="6" fill="#d62728"/>
+    <text x="245" y="695" text-anchor="end" font-weight="700" fill="#1a1a1a">3V</text>
+    <text x="412" y="695" font-weight="700" fill="#1a1a1a">RST</text>
+  </g>
 
-    <line x1="330" y1="936" x2="630" y2="936" stroke="#9467bd" stroke-width="4" stroke-linecap="round"/>
-    <circle cx="330" cy="936" r="6" fill="#9467bd"/><circle cx="630" cy="936" r="6" fill="#9467bd"/>
-    <text x="315" y="941" text-anchor="end" font-weight="700" fill="#1a1a1a">A4 · GPIO36 ‡</text>
-    <text x="645" y="941" font-weight="700" fill="#1a1a1a">PSH</text>
-    <text x="480" y="928" text-anchor="middle" fill="#333">encoder push</text>
+  <!-- MCP23017 to the keys -->
+  <g font-size="13">
+    <line x1="580" y1="510" x2="720" y2="510" stroke="#ff7f0e" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="580" cy="510" r="6" fill="#ff7f0e"/><circle cx="720" cy="510" r="6" fill="#ff7f0e"/>
+    <text x="568" y="515" text-anchor="end" font-weight="700" fill="#1a1a1a">GPA0</text>
+    <text x="735" y="515" font-weight="700" fill="#1a1a1a">CS (key A)</text>
 
-    <line x1="330" y1="972" x2="630" y2="972" stroke="#8c564b" stroke-width="4" stroke-linecap="round"/>
-    <circle cx="330" cy="972" r="6" fill="#8c564b"/><circle cx="630" cy="972" r="6" fill="#8c564b"/>
-    <text x="315" y="977" text-anchor="end" font-weight="700" fill="#1a1a1a">A3 · GPIO39 ‡</text>
-    <text x="645" y="977" font-weight="700" fill="#1a1a1a">BAK</text>
-    <text x="480" y="964" text-anchor="middle" fill="#333">BACK (logged only)</text>
+    <line x1="580" y1="546" x2="720" y2="546" stroke="#ff7f0e" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="580" cy="546" r="6" fill="#ff7f0e"/><circle cx="720" cy="546" r="6" fill="#ff7f0e"/>
+    <text x="568" y="551" text-anchor="end" font-weight="700" fill="#1a1a1a">GPA1</text>
+    <text x="735" y="551" font-weight="700" fill="#1a1a1a">CS (key B)</text>
 
-    <line x1="330" y1="1008" x2="630" y2="1008" stroke="#ff7f0e" stroke-width="4" stroke-linecap="round"/>
-    <circle cx="330" cy="1008" r="6" fill="#ff7f0e"/><circle cx="630" cy="1008" r="6" fill="#ff7f0e"/>
-    <text x="315" y="1013" text-anchor="end" font-weight="700" fill="#1a1a1a">37 · GPIO37 ‡</text>
-    <text x="645" y="1013" font-weight="700" fill="#1a1a1a">CON</text>
-    <text x="480" y="1000" text-anchor="middle" fill="#333">CONFIRM (logged only)</text>
+    <line x1="580" y1="582" x2="720" y2="582" stroke="#9467bd" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="580" cy="582" r="6" fill="#9467bd"/><circle cx="720" cy="582" r="6" fill="#9467bd"/>
+    <text x="568" y="587" text-anchor="end" font-weight="700" fill="#1a1a1a">GPA2</text>
+    <text x="735" y="587" font-weight="700" fill="#1a1a1a">RST (A+B)</text>
+
+    <line x1="580" y1="618" x2="720" y2="618" stroke="#13a3b5" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="580" cy="618" r="6" fill="#13a3b5"/><circle cx="720" cy="618" r="6" fill="#13a3b5"/>
+    <text x="568" y="623" text-anchor="end" font-weight="700" fill="#1a1a1a">GPB0</text>
+    <text x="735" y="623" font-weight="700" fill="#1a1a1a">KEY (key A)</text>
+
+    <line x1="580" y1="654" x2="720" y2="654" stroke="#13a3b5" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="580" cy="654" r="6" fill="#13a3b5"/><circle cx="720" cy="654" r="6" fill="#13a3b5"/>
+    <text x="568" y="659" text-anchor="end" font-weight="700" fill="#1a1a1a">GPB1</text>
+    <text x="735" y="659" font-weight="700" fill="#1a1a1a">KEY (key B)</text>
+  </g>
+
+  <!-- MCP23017 to the module's buttons -->
+  <g font-size="13">
+    <line x1="580" y1="790" x2="720" y2="790" stroke="#9467bd" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="580" cy="790" r="6" fill="#9467bd"/><circle cx="720" cy="790" r="6" fill="#9467bd"/>
+    <text x="568" y="795" text-anchor="end" font-weight="700" fill="#1a1a1a">GPB2</text>
+    <text x="735" y="795" font-weight="700" fill="#1a1a1a">PSH</text>
+
+    <line x1="580" y1="826" x2="720" y2="826" stroke="#8c564b" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="580" cy="826" r="6" fill="#8c564b"/><circle cx="720" cy="826" r="6" fill="#8c564b"/>
+    <text x="568" y="831" text-anchor="end" font-weight="700" fill="#1a1a1a">GPB3</text>
+    <text x="735" y="831" font-weight="700" fill="#1a1a1a">BAK</text>
+
+    <line x1="580" y1="862" x2="720" y2="862" stroke="#ff7f0e" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="580" cy="862" r="6" fill="#ff7f0e"/><circle cx="720" cy="862" r="6" fill="#ff7f0e"/>
+    <text x="568" y="867" text-anchor="end" font-weight="700" fill="#1a1a1a">GPB4</text>
+    <text x="735" y="867" font-weight="700" fill="#1a1a1a">CON</text>
+  </g>
+
+  <!-- Feather straight to the module (front header order: CON SDA SCL PSH TRA TRB BAK GND VCC) -->
+  <g font-size="13">
+    <line x1="260" y1="930" x2="720" y2="930" stroke="#d62728" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="260" cy="930" r="6" fill="#d62728"/><circle cx="720" cy="930" r="6" fill="#d62728"/>
+    <text x="245" y="935" text-anchor="end" font-weight="700" fill="#1a1a1a">3V</text>
+    <text x="735" y="935" font-weight="700" fill="#1a1a1a">VCC</text>
+    <text x="490" y="922" text-anchor="middle" fill="#333">3.3 V: keeps its pull-ups at ESP32 levels</text>
+
+    <line x1="260" y1="966" x2="720" y2="966" stroke="#222222" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="260" cy="966" r="6" fill="#222222"/><circle cx="720" cy="966" r="6" fill="#222222"/>
+    <text x="245" y="971" text-anchor="end" font-weight="700" fill="#1a1a1a">GND</text>
+    <text x="735" y="971" font-weight="700" fill="#1a1a1a">GND</text>
+    <text x="490" y="958" text-anchor="middle" fill="#333">ground</text>
+
+    <line x1="260" y1="1002" x2="720" y2="1002" stroke="#1f77b4" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="260" cy="1002" r="6" fill="#1f77b4"/><circle cx="720" cy="1002" r="6" fill="#1f77b4"/>
+    <text x="245" y="1007" text-anchor="end" font-weight="700" fill="#1a1a1a">SDA · GPIO22</text>
+    <text x="735" y="1007" font-weight="700" fill="#1a1a1a">SDA</text>
+    <text x="490" y="994" text-anchor="middle" fill="#333">I²C data, shared with the expander</text>
+
+    <line x1="260" y1="1038" x2="720" y2="1038" stroke="#d9a400" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="260" cy="1038" r="6" fill="#d9a400"/><circle cx="720" cy="1038" r="6" fill="#d9a400"/>
+    <text x="245" y="1043" text-anchor="end" font-weight="700" fill="#1a1a1a">SCL · GPIO20</text>
+    <text x="735" y="1043" font-weight="700" fill="#1a1a1a">SCL</text>
+    <text x="490" y="1030" text-anchor="middle" fill="#333">I²C clock, shared with the expander</text>
+
+    <line x1="260" y1="1074" x2="720" y2="1074" stroke="#2ca02c" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="260" cy="1074" r="6" fill="#2ca02c"/><circle cx="720" cy="1074" r="6" fill="#2ca02c"/>
+    <text x="245" y="1079" text-anchor="end" font-weight="700" fill="#1a1a1a">A2 · GPIO34 ‡</text>
+    <text x="735" y="1079" font-weight="700" fill="#1a1a1a">TRA</text>
+    <text x="490" y="1066" text-anchor="middle" fill="#333">encoder phase A (PCNT)</text>
+
+    <line x1="260" y1="1110" x2="720" y2="1110" stroke="#2ca02c" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="260" cy="1110" r="6" fill="#2ca02c"/><circle cx="720" cy="1110" r="6" fill="#2ca02c"/>
+    <text x="245" y="1115" text-anchor="end" font-weight="700" fill="#1a1a1a">A5 · GPIO4</text>
+    <text x="735" y="1115" font-weight="700" fill="#1a1a1a">TRB</text>
+    <text x="490" y="1102" text-anchor="middle" fill="#333">encoder phase B (PCNT)</text>
   </g>
 
   <!-- Notes -->
   <g font-size="13" fill="#333">
-    <text x="60" y="1088">† ESP32 strapping pin with a boot pull-up. ‡ Input-only pin with no internal pull-up; the module's 10 kΩ pull-ups serve.</text>
-    <text x="60" y="1108">Dashed: key B's own pins. The whole module is new in P3. Encoder phases avoid GPIO36/39, which the ESP32 errata say can glitch low (KTD25).</text>
-    <text x="60" y="1128">All module buttons read low when pressed. BACK and CONFIRM are logged only; they never reach Companion (KTD24).</text>
-    <text x="60" y="1148">3.3 V only: never connect VCC to USB or BAT. Key calibration 2026-11-15: offset (2, 1), BGR, inverted colours.</text>
+    <text x="40" y="1190">† ESP32 strapping pin with a boot pull-up. ‡ Input-only pin with no internal pull-up: INTB is push-pull, the encoder has its own pull-ups.</text>
+    <text x="40" y="1210">Expander pins are named GPA0–GPA7 and GPB0–GPB7 (the breakout may print A0–A7 and B0–B7; not the Feather's A0–A5).</text>
+    <text x="40" y="1230">Dashed grey: bench-only second wire from key A's KEY pin to GPIO32, for the edge-to-detection timing. Remove it after the bench.</text>
+    <text x="40" y="1250">Freed on the Feather: GPIO15, 25, 26, 33, 36, 39. All buttons read low when pressed; BACK and CONFIRM are never sent to Companion.</text>
+    <text x="40" y="1270">3.3 V only: never connect VCC or VIN to USB or BAT. Key calibration 2026-11-15: offset (2, 1), BGR, inverted colours.</text>
   </g>
 </svg>

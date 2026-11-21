@@ -1,16 +1,46 @@
 # Deck wiring and calibration
 
-How the two Waveshare 0.85" ScreenKey Module B keys and the 1.3" OLED/encoder module are wired to the Adafruit Feather ESP32 V2, and the panel values the firmware uses. The P2 section closes the three bench checks P1 left open in [the board decision](board-and-framework-decision.md): KEY polarity, the pull-up, and the panel offset. The module itself is described in [oled-encoder-module.md](oled-encoder-module.md).
+How the two Waveshare 0.85" ScreenKey Module B keys, the 1.3" OLED/encoder module and the Adafruit MCP23017 I/O expander are wired to the Adafruit Feather ESP32 V2, and the panel values the firmware uses. The P2 section closes the three bench checks P1 left open in [the board decision](board-and-framework-decision.md): KEY polarity, the pull-up, and the panel offset. The module itself is described in [oled-encoder-module.md](oled-encoder-module.md).
 
 > **Status:**
 > - **Key A** was calibrated on the bench on 2026-11-15 (U8 in [the PoC plan](../plans/2026-11-13-1722-feat-companion-network-deck-poc-plan.md)), with one Feather ESP32 V2 (ESP32-PICO-V3-02, rev v3.0) and one ScreenKey Module B.
-> - **Key B and the OLED/encoder module** (P3) were checked on the bench on 2026-11-16 with the pins below (U13 and U14).
+> - **Key B and the OLED/encoder module** (P3) were checked on the bench on 2026-11-16 with the direct pins of that time (U13 and U14).
+> - **The MCP23017 wiring** (THI-89, [plan](../plans/2026-11-21-1733-feat-mcp23017-key-inputs-bench-plan.md)) replaced those direct pins on 2026-11-21. The keys' KEY, CS and RST and the module's three buttons now go through the expander. It has not been checked on the bench yet.
 
 ## Wiring
 
 ![Wiring diagram: Feather ESP32 V2 to two ScreenKeys and the OLED/encoder module](deck-wiring.svg)
 
 [`deck-wiring.svg`](deck-wiring.svg) is hand-maintained. Whenever a pin changes, update the tables below, the pin setup in `firmware/src/main.rs` and the diagram in the same commit.
+
+### MCP23017 expander
+
+The Adafruit MCP23017 breakout shares I²C0 with the OLED at address 0x20 (address jumpers open). Wire it from the Feather's header pins, not the STEMMA QT port. Expander pins are named GPA0–GPA7 and GPB0–GPB7; the breakout may print them as A0–A7 and B0–B7, which are not the Feather's A0–A5. GPA7 and GPB7 are output-only on current chips, so nothing is wired to them.
+
+| Breakout pin | Feather ESP32 V2 | Notes |
+|---|---|---|
+| VIN | 3V | 3.3 V only |
+| GND | GND | |
+| SDA | GPIO22 (SDA) | Shared with the OLED |
+| SCL | GPIO20 (SCL) | Shared with the OLED |
+| INTB | GPIO37 | Port B changed; push-pull, active low. Input-only pin. |
+| RST | 3V | Keeps the expander out of reset |
+| INTA, GPA3–GPA7, GPB5–GPB7 | — | Unused |
+
+| Expander pin | Goes to | Direction | Notes |
+|---|---|---|---|
+| GPA0 | Key A CS | output | High = not selected |
+| GPA1 | Key B CS | output | High = not selected |
+| GPA2 | RST of both keys | output | Pulsed low once at boot |
+| GPB0 | Key A KEY | input | Expander's internal pull-up |
+| GPB1 | Key B KEY | input | Expander's internal pull-up |
+| GPB2 | Module PSH | input | Module's own 10 kΩ pull-up |
+| GPB3 | Module BAK | input | Module's own 10 kΩ pull-up |
+| GPB4 | Module CON | input | Module's own 10 kΩ pull-up |
+
+**Bench only:** a second wire from key A's KEY pin to GPIO32. The firmware times each press from this pin's edge to the expander read that sees it. Both pull-ups are in parallel, and the switch still pulls the line low. Remove the wire after the THI-89 bench session; the deck works without it.
+
+Freed Feather pins: GPIO15, GPIO25, GPIO26, GPIO33, GPIO36 and GPIO39 (and GPIO32 once the bench wire is gone).
 
 ### Keys
 
@@ -22,27 +52,27 @@ Both keys share the SPI bus, DC, RST and the backlight; each has its own CS and 
 | GND | GND | GND | |
 | SCLK | GPIO5 (SCK) | GPIO5 (SCK) | SPI2. Strapping pin with a boot pull-up. |
 | DIN | GPIO19 (MOSI) | GPIO19 (MOSI) | MISO unused |
-| CS | GPIO33 | GPIO26 (A0) | One per key |
+| CS | MCP GPA0 | MCP GPA1 | One per key, through the expander |
 | DC | GPIO27 | GPIO27 | Shared |
-| RST | GPIO15 | GPIO15 | Shared; pulsed once at boot. Strapping pin with a boot pull-up. |
+| RST | MCP GPA2 | MCP GPA2 | Shared, through the expander; pulsed once at boot |
 | PWM | GPIO14 | GPIO14 | Driven high; no brightness control yet (THI-81) |
-| KEY | GPIO32 | GPIO25 (A1) | Internal pull-up; one per key |
+| KEY | MCP GPB0 (bench: also GPIO32) | MCP GPB1 | Expander's internal pull-up; one per key |
 
 ### OLED/encoder module
 
-The module has its own 10 kΩ pull-ups on every signal, so the input-only pins work without internal pull-ups. The encoder phases avoid GPIO36 and GPIO39, which the ESP32 errata say can see short low glitches (KTD25 in the plan).
+The module has its own 10 kΩ pull-ups on every signal, so the input-only pins work without internal pull-ups. The encoder phases stay on direct pins, because the PCNT counter needs them, and avoid GPIO36 and GPIO39, which the ESP32 errata say can see short low glitches (KTD25 in the PoC plan). The three buttons go through the expander.
 
 | Module pin | Feather ESP32 V2 | Notes |
 |---|---|---|
 | VCC | 3V | 3.3 V keeps the module's pull-ups at ESP32 levels |
 | GND | GND | |
-| SDA | GPIO22 (SDA) | I²C0 |
-| SCL | GPIO20 (SCL) | I²C0 |
+| SDA | GPIO22 (SDA) | I²C0, shared with the expander |
+| SCL | GPIO20 (SCL) | I²C0, shared with the expander |
 | TRA | GPIO34 (A2) | Encoder phase A, counted by PCNT. Input only. |
 | TRB | GPIO4 (A5) | Encoder phase B, counted by PCNT |
-| PSH | GPIO36 (A4) | Encoder push. Input only. |
-| BAK | GPIO39 (A3) | BACK; logged, never sent to Companion. Input only. |
-| CON | GPIO37 | CONFIRM; logged, never sent to Companion. Input only. |
+| PSH | MCP GPB2 | Encoder push |
+| BAK | MCP GPB3 | BACK; logged, never sent to Companion |
+| CON | MCP GPB4 | CONFIRM; logged, never sent to Companion |
 
 The pins are set in `firmware/src/main.rs`.
 
