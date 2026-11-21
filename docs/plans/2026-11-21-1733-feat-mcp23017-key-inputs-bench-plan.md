@@ -150,7 +150,7 @@ Freed on the Feather: GPIO15, GPIO25, GPIO26, GPIO33, GPIO36, GPIO39 (GPIO32 is 
 ### Assumptions
 
 - The ScreenKey panels tolerate CS and RST floating for the few milliseconds between power-up and the expander's init, because no SPI traffic happens before it.
-- The breakout is wired from the Feather's header pins, not the STEMMA QT port, so no extra power switch is involved. The STEMMA QT port shares SDA/SCL but may have switched power on this board.
+- The breakout's power and I²C come through a STEMMA QT to breadboard cable, plugged into the breakout and pinned into the Feather's header (not the Feather's own QT port, which may have switched power on this board). Only IB (INTB), RST and the port pins need header wires.
 - The breakout's RST pin is tied to 3V, and its address jumpers stay open (0x20).
 
 ### Sequencing

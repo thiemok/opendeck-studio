@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1300" viewBox="0 0 1000 1300" font-family="Helvetica, Arial, sans-serif" role="img" aria-labelledby="title desc">
   <title id="title">Deck wiring (THI-89): Feather ESP32 V2, MCP23017 expander, two ScreenKeys and the OLED/encoder module</title>
-  <desc id="desc">Both ScreenKeys take 3V, GND, MO (GPIO19) to DIN, SCK (GPIO5) to SCLK, GPIO27 to DC and GPIO14 to PWM directly from the Feather. The MCP23017 breakout takes 3V to VIN and RST, GND, GPIO22 to SDA, GPIO20 to SCL, and its INTB goes to GPIO37. Expander GPA0 drives CS of key A, GPA1 CS of key B, GPA2 the shared RST. GPB0 reads KEY of key A, GPB1 KEY of key B, GPB2 the encoder push PSH, GPB3 BAK, GPB4 CON. The OLED/encoder module takes 3V, GND, GPIO22 SDA, GPIO20 SCL, GPIO34 TRA and GPIO4 TRB directly. Bench only: KEY of key A is also wired to GPIO32 as a timing reference.</desc>
+  <desc id="desc">Both ScreenKeys take 3V, GND, MO (GPIO19) to DIN, SCK (GPIO5) to SCLK, GPIO27 to DC and GPIO14 to PWM directly from the Feather. The MCP23017 breakout gets 3V (red), GND (black), GPIO22 SDA (blue) and GPIO20 SCL (yellow) through a STEMMA QT to breadboard cable plugged into its QT port; RST goes to 3V and IB (INTB) to GPIO37 with header wires. Expander GPA0 drives CS of key A, GPA1 CS of key B, GPA2 the shared RST. GPB0 reads KEY of key A, GPB1 KEY of key B, GPB2 the encoder push PSH, GPB3 BAK, GPB4 CON. The OLED/encoder module takes 3V, GND, GPIO22 SDA, GPIO20 SCL, GPIO34 TRA and GPIO4 TRB directly. Bench only: KEY of key A is also wired to GPIO32 as a timing reference.</desc>
 
   <!-- Opaque background so the diagram reads the same in light and dark viewers. -->
   <rect x="0" y="0" width="1000" height="1300" rx="12" fill="#ffffff"/>
@@ -19,10 +19,11 @@
   <!-- MCP23017 breakout -->
   <rect x="400" y="440" width="180" height="460" rx="14" fill="#fbeef3" stroke="#6b3a52" stroke-width="2"/>
   <text x="490" y="464" text-anchor="middle" font-size="16" font-weight="700" fill="#1a1a1a">Adafruit MCP23017</text>
-  <text x="490" y="482" text-anchor="middle" font-size="13" fill="#1a1a1a">I²C 0x20 (jumpers open)</text>
+  <text x="490" y="482" text-anchor="middle" font-size="13" fill="#1a1a1a">I²C 0x20 (D0–D2 open)</text>
   <text x="490" y="720" text-anchor="middle" font-size="11" fill="#555">GPA7 and GPB7: output only,</text>
   <text x="490" y="734" text-anchor="middle" font-size="11" fill="#555">leave unused</text>
-  <text x="490" y="888" text-anchor="middle" font-size="11" fill="#555">use the header, not STEMMA QT</text>
+  <text x="490" y="874" text-anchor="middle" font-size="11" fill="#555">QT cable: plug on the breakout,</text>
+  <text x="490" y="888" text-anchor="middle" font-size="11" fill="#555">pins in the Feather header</text>
 
   <!-- ScreenKeys A and B -->
   <rect x="720" y="120" width="240" height="570" rx="14" fill="#f3f1ec" stroke="#4d4636" stroke-width="2"/>
@@ -87,26 +88,30 @@
     <circle cx="260" cy="510" r="6" fill="#d62728"/><circle cx="400" cy="510" r="6" fill="#d62728"/>
     <text x="245" y="515" text-anchor="end" font-weight="700" fill="#1a1a1a">3V</text>
     <text x="412" y="515" font-weight="700" fill="#1a1a1a">VIN</text>
+    <text x="330" y="502" text-anchor="middle" font-size="11" font-weight="700" fill="#333">QT red</text>
 
     <line x1="260" y1="546" x2="400" y2="546" stroke="#222222" stroke-width="4" stroke-linecap="round"/>
     <circle cx="260" cy="546" r="6" fill="#222222"/><circle cx="400" cy="546" r="6" fill="#222222"/>
     <text x="245" y="551" text-anchor="end" font-weight="700" fill="#1a1a1a">GND</text>
     <text x="412" y="551" font-weight="700" fill="#1a1a1a">GND</text>
+    <text x="330" y="538" text-anchor="middle" font-size="11" font-weight="700" fill="#333">QT black</text>
 
     <line x1="260" y1="582" x2="400" y2="582" stroke="#1f77b4" stroke-width="4" stroke-linecap="round"/>
     <circle cx="260" cy="582" r="6" fill="#1f77b4"/><circle cx="400" cy="582" r="6" fill="#1f77b4"/>
     <text x="245" y="587" text-anchor="end" font-weight="700" fill="#1a1a1a">SDA · GPIO22</text>
     <text x="412" y="587" font-weight="700" fill="#1a1a1a">SDA</text>
+    <text x="330" y="574" text-anchor="middle" font-size="11" font-weight="700" fill="#333">QT blue</text>
 
     <line x1="260" y1="618" x2="400" y2="618" stroke="#d9a400" stroke-width="4" stroke-linecap="round"/>
     <circle cx="260" cy="618" r="6" fill="#d9a400"/><circle cx="400" cy="618" r="6" fill="#d9a400"/>
     <text x="245" y="623" text-anchor="end" font-weight="700" fill="#1a1a1a">SCL · GPIO20</text>
     <text x="412" y="623" font-weight="700" fill="#1a1a1a">SCL</text>
+    <text x="330" y="610" text-anchor="middle" font-size="11" font-weight="700" fill="#333">QT yellow</text>
 
     <line x1="260" y1="654" x2="400" y2="654" stroke="#e377c2" stroke-width="4" stroke-linecap="round"/>
     <circle cx="260" cy="654" r="6" fill="#e377c2"/><circle cx="400" cy="654" r="6" fill="#e377c2"/>
     <text x="245" y="659" text-anchor="end" font-weight="700" fill="#1a1a1a">37 · GPIO37 ‡</text>
-    <text x="412" y="659" font-weight="700" fill="#1a1a1a">INTB</text>
+    <text x="412" y="659" font-weight="700" fill="#1a1a1a">IB (INTB)</text>
 
     <line x1="260" y1="690" x2="400" y2="690" stroke="#d62728" stroke-width="4" stroke-linecap="round"/>
     <circle cx="260" cy="690" r="6" fill="#d62728"/><circle cx="400" cy="690" r="6" fill="#d62728"/>
@@ -118,27 +123,27 @@
   <g font-size="13">
     <line x1="580" y1="510" x2="720" y2="510" stroke="#ff7f0e" stroke-width="4" stroke-linecap="round"/>
     <circle cx="580" cy="510" r="6" fill="#ff7f0e"/><circle cx="720" cy="510" r="6" fill="#ff7f0e"/>
-    <text x="568" y="515" text-anchor="end" font-weight="700" fill="#1a1a1a">GPA0</text>
+    <text x="568" y="515" text-anchor="end" font-weight="700" fill="#1a1a1a">A0</text>
     <text x="735" y="515" font-weight="700" fill="#1a1a1a">CS (key A)</text>
 
     <line x1="580" y1="546" x2="720" y2="546" stroke="#ff7f0e" stroke-width="4" stroke-linecap="round"/>
     <circle cx="580" cy="546" r="6" fill="#ff7f0e"/><circle cx="720" cy="546" r="6" fill="#ff7f0e"/>
-    <text x="568" y="551" text-anchor="end" font-weight="700" fill="#1a1a1a">GPA1</text>
+    <text x="568" y="551" text-anchor="end" font-weight="700" fill="#1a1a1a">A1</text>
     <text x="735" y="551" font-weight="700" fill="#1a1a1a">CS (key B)</text>
 
     <line x1="580" y1="582" x2="720" y2="582" stroke="#9467bd" stroke-width="4" stroke-linecap="round"/>
     <circle cx="580" cy="582" r="6" fill="#9467bd"/><circle cx="720" cy="582" r="6" fill="#9467bd"/>
-    <text x="568" y="587" text-anchor="end" font-weight="700" fill="#1a1a1a">GPA2</text>
+    <text x="568" y="587" text-anchor="end" font-weight="700" fill="#1a1a1a">A2</text>
     <text x="735" y="587" font-weight="700" fill="#1a1a1a">RST (A+B)</text>
 
     <line x1="580" y1="618" x2="720" y2="618" stroke="#13a3b5" stroke-width="4" stroke-linecap="round"/>
     <circle cx="580" cy="618" r="6" fill="#13a3b5"/><circle cx="720" cy="618" r="6" fill="#13a3b5"/>
-    <text x="568" y="623" text-anchor="end" font-weight="700" fill="#1a1a1a">GPB0</text>
+    <text x="568" y="623" text-anchor="end" font-weight="700" fill="#1a1a1a">B0</text>
     <text x="735" y="623" font-weight="700" fill="#1a1a1a">KEY (key A)</text>
 
     <line x1="580" y1="654" x2="720" y2="654" stroke="#13a3b5" stroke-width="4" stroke-linecap="round"/>
     <circle cx="580" cy="654" r="6" fill="#13a3b5"/><circle cx="720" cy="654" r="6" fill="#13a3b5"/>
-    <text x="568" y="659" text-anchor="end" font-weight="700" fill="#1a1a1a">GPB1</text>
+    <text x="568" y="659" text-anchor="end" font-weight="700" fill="#1a1a1a">B1</text>
     <text x="735" y="659" font-weight="700" fill="#1a1a1a">KEY (key B)</text>
   </g>
 
@@ -146,17 +151,17 @@
   <g font-size="13">
     <line x1="580" y1="790" x2="720" y2="790" stroke="#9467bd" stroke-width="4" stroke-linecap="round"/>
     <circle cx="580" cy="790" r="6" fill="#9467bd"/><circle cx="720" cy="790" r="6" fill="#9467bd"/>
-    <text x="568" y="795" text-anchor="end" font-weight="700" fill="#1a1a1a">GPB2</text>
+    <text x="568" y="795" text-anchor="end" font-weight="700" fill="#1a1a1a">B2</text>
     <text x="735" y="795" font-weight="700" fill="#1a1a1a">PSH</text>
 
     <line x1="580" y1="826" x2="720" y2="826" stroke="#8c564b" stroke-width="4" stroke-linecap="round"/>
     <circle cx="580" cy="826" r="6" fill="#8c564b"/><circle cx="720" cy="826" r="6" fill="#8c564b"/>
-    <text x="568" y="831" text-anchor="end" font-weight="700" fill="#1a1a1a">GPB3</text>
+    <text x="568" y="831" text-anchor="end" font-weight="700" fill="#1a1a1a">B3</text>
     <text x="735" y="831" font-weight="700" fill="#1a1a1a">BAK</text>
 
     <line x1="580" y1="862" x2="720" y2="862" stroke="#ff7f0e" stroke-width="4" stroke-linecap="round"/>
     <circle cx="580" cy="862" r="6" fill="#ff7f0e"/><circle cx="720" cy="862" r="6" fill="#ff7f0e"/>
-    <text x="568" y="867" text-anchor="end" font-weight="700" fill="#1a1a1a">GPB4</text>
+    <text x="568" y="867" text-anchor="end" font-weight="700" fill="#1a1a1a">B4</text>
     <text x="735" y="867" font-weight="700" fill="#1a1a1a">CON</text>
   </g>
 
@@ -202,7 +207,7 @@
   <!-- Notes -->
   <g font-size="13" fill="#333">
     <text x="40" y="1190">† ESP32 strapping pin with a boot pull-up. ‡ Input-only pin with no internal pull-up: INTB is push-pull, the encoder has its own pull-ups.</text>
-    <text x="40" y="1210">Expander pins are named GPA0–GPA7 and GPB0–GPB7 (the breakout may print A0–A7 and B0–B7; not the Feather's A0–A5).</text>
+    <text x="40" y="1210">Expander A0–A7 / B0–B7 are its silkscreen (chip GPA0–GPB7), not the Feather's A0–A5. QT cable: red 3V, black GND, blue SDA, yellow SCL.</text>
     <text x="40" y="1230">Dashed grey: bench-only second wire from key A's KEY pin to GPIO32, for the edge-to-detection timing. Remove it after the bench.</text>
     <text x="40" y="1250">Freed on the Feather: GPIO15, 25, 26, 33, 36, 39. All buttons read low when pressed; BACK and CONFIRM are never sent to Companion.</text>
     <text x="40" y="1270">3.3 V only: never connect VCC or VIN to USB or BAT. Key calibration 2026-11-15: offset (2, 1), BGR, inverted colours.</text>

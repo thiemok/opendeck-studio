@@ -15,28 +15,28 @@ How the two Waveshare 0.85" ScreenKey Module B keys, the 1.3" OLED/encoder modul
 
 ### MCP23017 expander
 
-The Adafruit MCP23017 breakout shares I²C0 with the OLED at address 0x20 (address jumpers open). Wire it from the Feather's header pins, not the STEMMA QT port. Expander pins are named GPA0–GPA7 and GPB0–GPB7; the breakout may print them as A0–A7 and B0–B7, which are not the Feather's A0–A5. GPA7 and GPB7 are output-only on current chips, so nothing is wired to them.
+The Adafruit MCP23017 breakout shares I²C0 with the OLED at address 0x20 (address pins D0–D2 and the +1/+2/+4 jumpers left open). Power and I²C come through a STEMMA QT to breadboard cable: its plug goes into the breakout's QT port, and its four pins go into the Feather's header (not the Feather's own QT port). The breakout already has 10 kΩ pull-ups on SDA and SCL. The breakout's silkscreen names the expander pins A0–A7 and B0–B7 (GPA0–GPA7 and GPB0–GPB7 in the datasheet); they are not the Feather's A0–A5. A7 and B7 are output-only on current chips, so nothing is wired to them.
 
-| Breakout pin | Feather ESP32 V2 | Notes |
-|---|---|---|
-| VIN | 3V | 3.3 V only |
-| GND | GND | |
-| SDA | GPIO22 (SDA) | Shared with the OLED |
-| SCL | GPIO20 (SCL) | Shared with the OLED |
-| INTB | GPIO37 | Port B changed; push-pull, active low. Input-only pin. |
-| RST | 3V | Keeps the expander out of reset |
-| INTA, GPA3–GPA7, GPB5–GPB7 | — | Unused |
-
-| Expander pin | Goes to | Direction | Notes |
+| Breakout pin | Feather ESP32 V2 | Wire | Notes |
 |---|---|---|---|
-| GPA0 | Key A CS | output | High = not selected |
-| GPA1 | Key B CS | output | High = not selected |
-| GPA2 | RST of both keys | output | Pulsed low once at boot |
-| GPB0 | Key A KEY | input | Expander's internal pull-up |
-| GPB1 | Key B KEY | input | Expander's internal pull-up |
-| GPB2 | Module PSH | input | Module's own 10 kΩ pull-up |
-| GPB3 | Module BAK | input | Module's own 10 kΩ pull-up |
-| GPB4 | Module CON | input | Module's own 10 kΩ pull-up |
+| VIN | 3V | QT cable, red | 3.3 V only |
+| GND | GND | QT cable, black | |
+| SDA | GPIO22 (SDA) | QT cable, blue | Shared with the OLED |
+| SCL | GPIO20 (SCL) | QT cable, yellow | Shared with the OLED |
+| IB (INTB) | GPIO37 | header wire | Port B changed; push-pull, active low. Input-only pin. |
+| RST | 3V | header wire | Keeps the expander out of reset; Adafruit's guide doesn't say the board pulls it up |
+| IA (INTA), A3–A7, B5–B7 | — | — | Unused |
+
+| Breakout pin (chip name) | Goes to | Direction | Notes |
+|---|---|---|---|
+| A0 (GPA0) | Key A CS | output | High = not selected |
+| A1 (GPA1) | Key B CS | output | High = not selected |
+| A2 (GPA2) | RST of both keys | output | Pulsed low once at boot |
+| B0 (GPB0) | Key A KEY | input | Expander's internal pull-up |
+| B1 (GPB1) | Key B KEY | input | Expander's internal pull-up |
+| B2 (GPB2) | Module PSH | input | Module's own 10 kΩ pull-up |
+| B3 (GPB3) | Module BAK | input | Module's own 10 kΩ pull-up |
+| B4 (GPB4) | Module CON | input | Module's own 10 kΩ pull-up |
 
 **Bench only:** a second wire from key A's KEY pin to GPIO32. The firmware times each press from this pin's edge to the expander read that sees it. Both pull-ups are in parallel, and the switch still pulls the line low. Remove the wire after the THI-89 bench session; the deck works without it.
 
@@ -52,11 +52,11 @@ Both keys share the SPI bus, DC, RST and the backlight; each has its own CS and 
 | GND | GND | GND | |
 | SCLK | GPIO5 (SCK) | GPIO5 (SCK) | SPI2. Strapping pin with a boot pull-up. |
 | DIN | GPIO19 (MOSI) | GPIO19 (MOSI) | MISO unused |
-| CS | MCP GPA0 | MCP GPA1 | One per key, through the expander |
+| CS | MCP A0 | MCP A1 | One per key, through the expander |
 | DC | GPIO27 | GPIO27 | Shared |
-| RST | MCP GPA2 | MCP GPA2 | Shared, through the expander; pulsed once at boot |
+| RST | MCP A2 | MCP A2 | Shared, through the expander; pulsed once at boot |
 | PWM | GPIO14 | GPIO14 | Driven high; no brightness control yet (THI-81) |
-| KEY | MCP GPB0 (bench: also GPIO32) | MCP GPB1 | Expander's internal pull-up; one per key |
+| KEY | MCP B0 (bench: also GPIO32) | MCP B1 | Expander's internal pull-up; one per key |
 
 ### OLED/encoder module
 
@@ -70,9 +70,9 @@ The module has its own 10 kΩ pull-ups on every signal, so the input-only pins w
 | SCL | GPIO20 (SCL) | I²C0, shared with the expander |
 | TRA | GPIO34 (A2) | Encoder phase A, counted by PCNT. Input only. |
 | TRB | GPIO4 (A5) | Encoder phase B, counted by PCNT |
-| PSH | MCP GPB2 | Encoder push |
-| BAK | MCP GPB3 | BACK; logged, never sent to Companion |
-| CON | MCP GPB4 | CONFIRM; logged, never sent to Companion |
+| PSH | MCP B2 | Encoder push |
+| BAK | MCP B3 | BACK; logged, never sent to Companion |
+| CON | MCP B4 | CONFIRM; logged, never sent to Companion |
 
 The pins are set in `firmware/src/main.rs`.
 
