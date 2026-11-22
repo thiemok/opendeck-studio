@@ -10,11 +10,10 @@
 //! exactly the wait being measured.
 
 use core::cell::{Cell, RefCell};
-use deck_core::buttons::{Next, ReadLoop};
+use deck_core::buttons::{Next, PressSampler, ReadLoop, Reference};
 use deck_core::debounce::{DEFAULT_INTERVAL_MS, Debouncer, Edge};
-use deck_core::expander::BUTTON_COUNT;
+use deck_core::expander::{BUTTON_COUNT, BUTTONS, Button};
 use deck_core::latency::Samples;
-use deck_core::session::Control;
 use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -26,37 +25,8 @@ use log::{info, warn};
 
 use crate::expander::Expander;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Button {
-    KeyA,
-    KeyB,
-    EncoderPush,
-    Back,
-    Confirm,
-}
-
-/// Must match `deck_core::expander::pressed`'s port-B bit order, GPB0–GPB4.
-const BUTTONS: [Button; BUTTON_COUNT] = [
-    Button::KeyA,
-    Button::KeyB,
-    Button::EncoderPush,
-    Button::Back,
-    Button::Confirm,
-];
 const KEY_A: usize = 0;
-
-impl Button {
-    /// The Companion control a button reports to. BACK and CONFIRM belong to the device and
-    /// are never reported (KTD24).
-    pub fn control(self) -> Option<Control> {
-        match self {
-            Button::KeyA => Some(Control::KeyA),
-            Button::KeyB => Some(Control::KeyB),
-            Button::EncoderPush => Some(Control::Encoder),
-            Button::Back | Button::Confirm => None,
-        }
-    }
-}
+const _: () = assert!(matches!(BUTTONS[KEY_A], Button::KeyA));
 
 const SAMPLE_PERIOD: Duration = Duration::from_millis(2);
 /// After a failed read the task waits this long before trying again, instead of spinning
@@ -122,21 +92,21 @@ pub async fn inputs_task(expander: &'static Expander, mut interrupt: Input<'stat
     }
     let mut debouncers: [Debouncer; BUTTON_COUNT] =
         core::array::from_fn(|_| Debouncer::new(DEFAULT_INTERVAL_MS));
-    // True while key A rests released, so the first read of its next press yields one
-    // edge-to-detection sample however much the switch bounces.
-    let mut key_a_idle = true;
+    let mut sampler = PressSampler::new(DEFAULT_INTERVAL_MS);
+    let mut settled = true;
     let mut delays = Samples::new(SUMMARY_EVERY);
     let mut failing = false;
     let mut read_loop = ReadLoop::new();
+    let mut last_check = Instant::now();
     loop {
         // The timer also catches an interrupt line that never falls (floating high, or a
         // change that landed during the previous read) and a chip that lost its
         // configuration to a power loss.
         if let Either::Second(()) =
             select(interrupt.wait_for_low(), Timer::after(SAFETY_POLL)).await
-            && !expander.configured().await
         {
-            expander.reinit().await;
+            expander.restore_if_reset().await;
+            last_check = Instant::now();
         }
         loop {
             let levels = match expander.buttons().await {
@@ -144,8 +114,10 @@ pub async fn inputs_task(expander: &'static Expander, mut interrupt: Input<'stat
                     if failing {
                         info!("MCP23017 reads again");
                         failing = false;
-                        // It may have lost power, which resets every register.
+                        // It may have lost power, which resets every register, so these
+                        // levels may lack the pull-ups: read again once it's configured.
                         expander.reinit().await;
+                        continue;
                     }
                     levels
                 }
@@ -155,24 +127,21 @@ pub async fn inputs_task(expander: &'static Expander, mut interrupt: Input<'stat
                         failing = true;
                     }
                     Timer::after(RETRY_AFTER_FAILURE).await;
-                    match read_loop.after_failed_read(debouncers.iter().all(Debouncer::settled)) {
-                        Next::WaitForInterrupt => break,
-                        Next::Poll { .. } => continue,
+                    if read_loop.after_failed_read(settled) {
+                        continue;
                     }
+                    break;
                 }
             };
             let now_us = Instant::now().as_micros();
-            if levels[KEY_A] && key_a_idle {
-                key_a_idle = false;
-                record_reference_delay(now_us, &mut delays);
+            match sampler.update(levels[KEY_A], now_us / 1000) {
+                Some(Reference::Sample) => record_reference_delay(now_us, &mut delays),
+                Some(Reference::Rearm) => REFERENCE_EDGE_US.lock(|edge| edge.set(None)),
+                None => {}
             }
             for ((button, level), debouncer) in BUTTONS.iter().zip(levels).zip(&mut debouncers) {
                 if let Some(edge) = debouncer.update(level, now_us / 1000) {
                     let pressed = edge == Edge::Pressed;
-                    if *button == Button::KeyA && !pressed {
-                        // Stamps from this press's bounces must not time the next press.
-                        REFERENCE_EDGE_US.lock(|edge| edge.set(None));
-                    }
                     info!(
                         "{button:?} {}",
                         if pressed { "pressed" } else { "released" }
@@ -180,15 +149,8 @@ pub async fn inputs_task(expander: &'static Expander, mut interrupt: Input<'stat
                     let _ = EDGES.try_send((*button, pressed));
                 }
             }
-            let key_a = &debouncers[KEY_A];
-            if !levels[KEY_A] && key_a.settled() && !key_a.pressed() {
-                // Key A rests released, also after a contact too short to count.
-                key_a_idle = true;
-            }
-            match read_loop.after_read(
-                debouncers.iter().all(Debouncer::settled),
-                interrupt.is_low(),
-            ) {
+            settled = debouncers.iter().all(Debouncer::settled) && sampler.settled();
+            match read_loop.after_read(settled, interrupt.is_low()) {
                 Next::WaitForInterrupt => break,
                 Next::Poll { warn_stuck } => {
                     if warn_stuck {
@@ -197,6 +159,11 @@ pub async fn inputs_task(expander: &'static Expander, mut interrupt: Input<'stat
                         );
                     }
                 }
+            }
+            // A line stuck low keeps the loop here, away from the timer's check above.
+            if last_check.elapsed() >= SAFETY_POLL {
+                expander.restore_if_reset().await;
+                last_check = Instant::now();
             }
             Timer::after(SAMPLE_PERIOD).await;
         }
@@ -210,6 +177,7 @@ fn record_reference_delay(now_us: u64, delays: &mut Samples) {
     };
     let elapsed = now_us.saturating_sub(edge_us);
     if elapsed > MAX_REFERENCE_AGE_US {
+        info!("KEY A edge stamp is {elapsed} µs old, over the 250 ms limit; not counted");
         return;
     }
     let delay_us = u32::try_from(elapsed).unwrap_or(u32::MAX);

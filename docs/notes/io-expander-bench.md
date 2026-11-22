@@ -2,14 +2,14 @@
 
 Does an MCP23017 on the OLED's I²C bus handle the keys' buttons and chip selects well enough for the 16-key PCB (THI-83)? This note holds the runbook, the numbers, and the recommendation. The plan is [2026-11-21-1733-feat-mcp23017-key-inputs-bench-plan.md](../plans/2026-11-21-1733-feat-mcp23017-key-inputs-bench-plan.md), and the wiring is in [deck-wiring.md](deck-wiring.md).
 
-> **Status:** measured on 2026-11-22 on the async build (firmware from commit `45fa4a5`), Companion 5.1.3 in `fake-deck-companion`, deck on the UniFi "Devices" network. The recommendation is below and on THI-83.
+> **Status:** measured on 2026-11-22 on the async build (firmware from commit `45fa4a5`), Companion 5.1.3 in `fake-deck-companion`, deck on the UniFi "Devices" network. Review fixes to the input task, the expander's configuration and its failure handling came afterwards and were not measured again. The recommendation is below and on THI-83.
 
 ## Runbook
 
 1. Wire the bench as in [deck-wiring.md](deck-wiring.md), including the dashed bench-only wire from key A's KEY pin to GPIO32.
 2. Flash the firmware (`firmware/README.md`). The boot log must show `MCP23017 ready at 0x20`, and both keys must show their test pattern for 3 s.
 3. **Buttons.** Press each of the five buttons 20 times with the deck idle. Each press must log exactly one `… pressed` and one `… released` line. Repeat while spinning the encoder (the OLED redraws on every detent), and again while paging in Companion (both keys receiving images).
-4. **Edge to detection.** Each KEY A press logs `KEY A edge to expander read: N µs`, and every 20 presses a `median … µs, max … µs` summary. Copy the summary for an idle bus, for presses while spinning the encoder, and for presses during page changes.
+4. **Edge to detection.** Each KEY A press logs `KEY A edge to expander read: N µs` (or, for a stamp older than 250 ms, that it was not counted), and every 20 presses a `median … µs, max … µs` summary. Copy the summary for an idle bus, for presses while spinning the encoder, and for presses during page changes.
 5. **Round trip.** With the deck registered normally, press KEY A and KEY B with buttons that change their own image. Copy the `round trip` summary line (KTD27).
 6. **Page change.** Run `bench 16 draw` (the deck only asks for `png` since PR #7), ten or more page changes, as in [the page-change bench](satellite-protocol-firmware-notes.md). Copy the `press to last key median … ms, max … ms` line.
 7. **Missing expander.** Disconnect the expander's header wires while running: the log shows one `MCP23017 read failed` line, not a flood, and the link stays up. Reboot with it still disconnected: the log says the MCP23017 was not found, the keys stay dark, and Wi-Fi and the Companion link come up. The OLED/encoder module is chained off the breakout, so it goes dark too.
@@ -21,8 +21,8 @@ The baseline was measured on 2026-11-16 with direct GPIO pins, on the same bench
 | Measurement | Direct pins (baseline) | MCP23017 |
 |---|---|---|
 | 20 presses × 5 buttons, idle | 20/20 (key A, P2 check) | 20/20 on all five |
-| 20 KEY A presses, OLED redrawing | not measured | 20/20 |
-| Presses during page changes (KEY A pages down, KEY B goes to P1, tight A → B × 20) | not measured | A 20/20; B only 9/20, see below |
+| 20 KEY A presses, OLED redrawing | not measured | 20/20 (the other four buttons were not pressed in this test) |
+| Presses during page changes (KEY A pages down, KEY B goes to P1, tight A → B × 20) | not measured | A 20/20; B only 9/20, see below (PSH, BAK and CON were not pressed in this test) |
 | Edge to detection, idle bus | ≤ 2 ms by construction (2 ms sampler) | median 1.27 ms, max 2.93 ms (20 presses) |
 | Edge to detection, OLED redrawing | ≤ 2 ms plus any synchronous draw at the edge | median 1.26 ms, max 3.0 ms (20 presses) |
 | Edge to detection, during page changes | ≤ 2 ms plus up to one key draw (26–66 ms) | median 1.25 ms, max 3.0 ms |

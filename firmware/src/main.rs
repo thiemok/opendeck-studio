@@ -184,7 +184,7 @@ async fn main(spawner: Spawner) -> ! {
         (Key::A, &mut key_a, SPI_BUF_A.take(), "KEY A"),
         (Key::B, &mut key_b, SPI_BUF_B.take(), "KEY B"),
     ] {
-        if expander.present() && select_with_retries(expander, key).await {
+        if expander.present() && expander.select_with_retries(key).await {
             let mut panel = KeyDisplay::new(bus, SharedPin::new(dc), buffer);
             panel.test_pattern(label);
             expander.deselect().await;
@@ -259,16 +259,4 @@ async fn main(spawner: Spawner) -> ! {
         },
     )
     .await
-}
-
-/// Selects `key`, trying a few times so one transient bus error at boot doesn't leave the
-/// panel dark until the next reboot.
-async fn select_with_retries(expander: &Expander, key: Key) -> bool {
-    for _ in 0..3 {
-        if expander.select(key).await {
-            return true;
-        }
-        Timer::after(Duration::from_millis(10)).await;
-    }
-    false
 }

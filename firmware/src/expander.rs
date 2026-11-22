@@ -7,20 +7,13 @@
 
 use crate::i2c::{self, SharedI2c};
 use core::cell::Cell;
-use deck_core::expander::{self, BUTTON_COUNT, INIT, Key, PortA, reg};
+use deck_core::expander::{self, BUTTON_COUNT, INIT, IODIRA_INIT, Key, PortA, reg};
 use embassy_time::Timer;
 use esp_hal::i2c::master::Error as I2cError;
 use log::{info, warn};
 
-/// What [`INIT`] writes to port A's direction register. The chip resets to all inputs, so
-/// reading anything else back means it lost power and needs [`Expander::reinit`].
-const IODIRA_VALUE: u8 = {
-    let mut i = 0;
-    while INIT[i].0 != reg::IODIRA {
-        i += 1;
-    }
-    INIT[i].1
-};
+/// Tries for the port-A writes at boot that nothing repeats later.
+const BOOT_WRITE_TRIES: u32 = 3;
 
 pub struct Expander {
     i2c: SharedI2c,
@@ -28,6 +21,8 @@ pub struct Expander {
     present: Cell<bool>,
     /// A port-A write failed and no write has succeeded since; logs once per run.
     port_a_failing: Cell<bool>,
+    /// A reconfiguration failed and none has succeeded since; logs once per run.
+    configure_failing: Cell<bool>,
 }
 
 impl Expander {
@@ -37,6 +32,7 @@ impl Expander {
             port_a: Cell::new(PortA::new()),
             present: Cell::new(false),
             port_a_failing: Cell::new(false),
+            configure_failing: Cell::new(false),
         }
     }
 
@@ -64,15 +60,26 @@ impl Expander {
     /// the chip may have lost power (it then resets every register).
     pub async fn reinit(&self) {
         match self.configure().await {
-            Ok(()) => info!("MCP23017 configured again"),
-            Err(e) => warn!("MCP23017 configuration failed: {e:?}"),
+            Ok(()) => {
+                self.configure_failing.set(false);
+                info!("MCP23017 configured again");
+            }
+            Err(e) => {
+                if !self.configure_failing.replace(true) {
+                    warn!("MCP23017 configuration failed: {e:?}");
+                }
+            }
         }
     }
 
-    /// Whether the chip still holds the configuration; false after a power loss, or when
-    /// the read fails.
-    pub async fn configured(&self) -> bool {
-        self.read(reg::IODIRA).await == Ok(IODIRA_VALUE)
+    /// Reconfigures a chip that answers but lost its configuration to a power loss. One
+    /// that doesn't answer is left to the button reads, which log the failure once.
+    pub async fn restore_if_reset(&self) {
+        if let Ok(iodira) = self.read(reg::IODIRA).await
+            && iodira != IODIRA_INIT
+        {
+            self.reinit().await;
+        }
     }
 
     /// [`INIT`], then the current port-A latch, then a port-B read to clear any pending
@@ -90,23 +97,46 @@ impl Expander {
         self.update_port_a(|port| port.select(key)).await
     }
 
+    /// [`Self::select`] for a panel's init at boot: retried, so one transient bus error
+    /// doesn't leave the panel dark until the next reboot.
+    pub async fn select_with_retries(&self, key: Key) -> bool {
+        self.update_port_a_with_retries(|port| port.select(key))
+            .await
+    }
+
     pub async fn deselect(&self) {
         self.update_port_a(PortA::deselect).await;
     }
 
     /// Pulses the keys' shared RST so every panel starts from a hardware reset; it then
-    /// stays high. Each panel's init follows with a software reset (PoC KTD21).
+    /// stays high. Each panel's init follows with a software reset (PoC KTD21). The release
+    /// is retried: nothing releases RST again later in the run.
     pub async fn reset_panels(&self) {
         self.update_port_a(|port| port.reset(true)).await;
         Timer::after_micros(20).await;
-        self.update_port_a(|port| port.reset(false)).await;
+        if !self
+            .update_port_a_with_retries(|port| port.reset(false))
+            .await
+        {
+            warn!("key RST may still be low; the keys stay dark until the next boot");
+        }
         Timer::after_millis(120).await;
     }
 
-    /// The five buttons' pressed states, in [`crate::inputs::Button`] order. Reading also
+    /// The five buttons' pressed states, in [`expander::BUTTONS`] order. Reading also
     /// clears the expander's interrupt.
     pub async fn buttons(&self) -> Result<[bool; BUTTON_COUNT], I2cError> {
         self.read(reg::GPIOB).await.map(expander::pressed)
+    }
+
+    async fn update_port_a_with_retries(&self, change: impl Fn(&mut PortA) -> u8) -> bool {
+        for _ in 0..BOOT_WRITE_TRIES {
+            if self.update_port_a(&change).await {
+                return true;
+            }
+            Timer::after_millis(10).await;
+        }
+        false
     }
 
     /// Applies `change` to the port-A latch and writes it; the latch keeps the change only

@@ -86,7 +86,7 @@ The pins are set in `firmware/src/main.rs`.
 | Colour order | `Bgr` | Both keys: correct |
 | Colour inversion | `Inverted` | Both keys: required. With `Normal`, every colour showed as its complement (red as cyan, white as black). |
 | SPI clock | 20 MHz, mode 0 | Key A: works. A full 128×128 frame decodes and draws in 26 ms. |
-| KEY when pressed | low (`ACTIVE_LOW` in `firmware/src/inputs.rs`) | Both keys: confirmed |
+| KEY when pressed | low (`pressed` in `crates/deck-core/src/expander.rs`) | Both keys: confirmed |
 | KEY needs the internal pull-up | yes | Both keys: work with only the internal pull-up |
 | Debounce interval | 20 ms | Key A: 20 presses logged exactly 20 `key pressed` and 20 `key released` (P2 log wording) |
 | Board boots with everything attached | expected | Key A alone: yes. GPIO5 and GPIO15 (strapping pins) do not disturb boot. All P3 parts: yes. |
@@ -98,4 +98,4 @@ The OLED and encoder values are in [oled-encoder-module.md](oled-encoder-module.
 1. Flash the firmware (`firmware/README.md`). For 3 s after boot each key shows a test pattern: a 1 px white border, a red block top-left, green top-right, blue bottom-left and white bottom-right, with "KEY A" or "KEY B" in the middle.
 2. **Offset.** Every border edge must be visible, and none may be doubled or show noise beyond it. Adjust `calibration::OFFSET`; common values for this panel size are `(2, 1)`, `(2, 3)` and `(0, 0)`.
 3. **Colours.** If red and blue swap places, switch `COLOR_ORDER`. If every colour shows as its complement (white as black, red as cyan, green as magenta), switch `INVERSION`.
-4. **Buttons.** Press and release each button 20 times while watching the serial log. Each press must log exactly one `KeyA pressed` (or `KeyB`, `EncoderPush`, `Back`, `Confirm`), and each release one `… released`. If presses log as releases, flip `ACTIVE_LOW`. If edges are missing or doubled, check the pull-up and tune the debounce interval.
+4. **Buttons.** Press and release each button 20 times while watching the serial log. Each press must log exactly one `KeyA pressed` (or `KeyB`, `EncoderPush`, `Back`, `Confirm`), and each release one `… released`. If presses log as releases, invert `pressed` in `crates/deck-core/src/expander.rs`. If edges are missing or doubled, check the pull-up and tune the debounce interval.

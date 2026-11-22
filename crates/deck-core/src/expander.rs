@@ -35,7 +35,11 @@ const OUTPUTS: u8 = CS_A | CS_B | RST;
 const PIN_7: u8 = 1 << 7;
 
 pub const BUTTON_COUNT: usize = 5;
-const BUTTONS: u8 = (1 << BUTTON_COUNT) - 1;
+const BUTTON_PINS: u8 = (1 << BUTTON_COUNT) - 1;
+
+/// What [`INIT`] writes to IODIRA. The chip resets to all inputs, so reading anything else
+/// back means it lost power.
+pub const IODIRA_INIT: u8 = !(OUTPUTS | PIN_7);
 
 /// Register writes, as `(register, value)`, that bring the expander up: outputs latched
 /// high before they are driven, so no panel is selected or held in reset, and port B
@@ -45,16 +49,48 @@ pub const INIT: [(u8, u8); 8] = [
     // BANK = 0, interrupt pins separate, sequential addressing, push-pull, active low.
     (reg::IOCON, 0x00),
     (reg::OLATA, OUTPUTS),
-    (reg::IODIRA, !(OUTPUTS | PIN_7)),
+    (reg::IODIRA, IODIRA_INIT),
     (reg::IODIRB, !PIN_7),
     (reg::IPOLB, 0x00),
     // Every button gets a pull-up. The keys need one; the module's buttons have their own
     // 10 kΩ ones, but read pressed while the module is unplugged without this.
-    (reg::GPPUB, BUTTONS),
+    (reg::GPPUB, BUTTON_PINS),
     // Interrupt on change against the previous value, not against DEFVAL.
     (reg::INTCONB, 0x00),
-    (reg::GPINTENB, BUTTONS),
+    (reg::GPINTENB, BUTTON_PINS),
 ];
+
+/// The deck's five buttons.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Button {
+    KeyA,
+    KeyB,
+    EncoderPush,
+    Back,
+    Confirm,
+}
+
+/// The buttons in port-B bit order: `BUTTONS[n]` is wired to GPBn.
+pub const BUTTONS: [Button; BUTTON_COUNT] = [
+    Button::KeyA,
+    Button::KeyB,
+    Button::EncoderPush,
+    Button::Back,
+    Button::Confirm,
+];
+
+impl Button {
+    /// The Companion control a button reports to. BACK and CONFIRM belong to the device and
+    /// are never reported (KTD24).
+    pub fn control(self) -> Option<Control> {
+        match self {
+            Button::KeyA => Some(Control::KeyA),
+            Button::KeyB => Some(Control::KeyB),
+            Button::EncoderPush => Some(Control::Encoder),
+            Button::Back | Button::Confirm => None,
+        }
+    }
+}
 
 /// Which key panel a chip select addresses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,8 +162,8 @@ impl PortA {
     }
 }
 
-/// Turns a [`reg::GPIOB`] byte into the five buttons' pressed states: key A, key B,
-/// encoder push, BACK, CONFIRM. Every button reads low while pressed.
+/// Turns a [`reg::GPIOB`] byte into the five buttons' pressed states, in [`BUTTONS`] order.
+/// Every button reads low while pressed.
 pub fn pressed(port_b: u8) -> [bool; BUTTON_COUNT] {
     core::array::from_fn(|bit| port_b & (1 << bit) == 0)
 }
@@ -233,6 +269,41 @@ mod tests {
         );
         assert_eq!(port.deselect(), 0b0000_0011, "both CS high, RST still low");
         assert_eq!(port.reset(false), 0b0000_0111);
+    }
+
+    #[test]
+    fn each_wired_pin_reads_as_its_button() {
+        // The port-B table in docs/notes/deck-wiring.md.
+        let wiring = [
+            (0, Button::KeyA),
+            (1, Button::KeyB),
+            (2, Button::EncoderPush),
+            (3, Button::Back),
+            (4, Button::Confirm),
+        ];
+        for (gpb, button) in wiring {
+            let levels = pressed(!(1 << gpb));
+            let down: Vec<_> = BUTTONS
+                .into_iter()
+                .zip(levels)
+                .filter_map(|(b, down)| down.then_some(b))
+                .collect();
+            assert_eq!(down, [button], "GPB{gpb}");
+        }
+    }
+
+    #[test]
+    fn only_the_keys_and_the_encoder_push_report_to_companion() {
+        assert_eq!(
+            BUTTONS.map(Button::control),
+            [
+                Some(Control::KeyA),
+                Some(Control::KeyB),
+                Some(Control::Encoder),
+                None,
+                None,
+            ]
+        );
     }
 
     #[test]

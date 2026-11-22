@@ -76,16 +76,19 @@ impl Displays {
         bitmap: &str,
         png: Option<&mut PngWorkspace>,
     ) -> Result<(), DrawError> {
-        let present = match key {
-            Key::A => self.key_a.is_some(),
-            Key::B => self.key_b.is_some(),
-        };
-        if !present {
+        if !self.has_key(key) {
             return Ok(());
         }
         self.on_key(key, |panel| panel.bitmap(bitmap, png))
             .await
             .unwrap_or(Err(DrawError::NotSelected))
+    }
+
+    fn has_key(&self, key: Key) -> bool {
+        match key {
+            Key::A => self.key_a.is_some(),
+            Key::B => self.key_b.is_some(),
+        }
     }
 
     /// Blanks both keys and the OLED's frame; [`Self::flush_oled`] sends it.
@@ -379,7 +382,12 @@ async fn serve(
                             }
                             Event::Draw { control, bitmap } => {
                                 let received = line_started.elapsed();
-                                if let Some(key) = key_for(control, surface.draw) {
+                                // A bench key without a panel is still decoded, so
+                                // page-change times don't count it as free.
+                                let panel = key_for(control, surface.draw).filter(|&key| {
+                                    !matches!(control, Control::Bench(_)) || displays.has_key(key)
+                                });
+                                if let Some(key) = panel {
                                     paused = Some(Paused::Draw {
                                         control,
                                         key,
