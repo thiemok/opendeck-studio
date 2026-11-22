@@ -13,7 +13,7 @@ One separately printed piece of a deck variant's face plate, cut so it fits the 
 Cuts fall only in the gaps between key columns, so no key mark is ever split across two tiles.
 
 ### Side tile
-The tile that carries the OLED and dial module, separate from the key area so it can join either end of it; which end it joins sets which side the dial is on.
+The tile that carries the OLED and dial module and any extra dials, separate from the key area; which end it joins sets which side the dials are on. A layout that is the same when turned round needs one print for both ends; otherwise each end has its own print.
 *Avoid:* side section (when meaning the printed piece)
 
 ### Print set

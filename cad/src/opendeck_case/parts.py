@@ -75,17 +75,29 @@ def key_tile(lay: Layout, index: int) -> Part:
     return part
 
 
-def side_tile(lay: Layout) -> Part:
-    """The OLED/dial tile, in its dial-on-the-right position."""
+def side_tile(lay: Layout, on_left: bool = False) -> Part:
+    """The OLED/dial tile, built for the key area's right or left end.
+
+    On the left the module is turned round, which puts its dial on the outside.
+    The extra dials stay at the front on either end.
+    """
     p = lay.params
-    tile = lay.side_tile
+    tile, shift = lay.side_tile, 0.0
+    if on_left:
+        shift = -lay.outer_width
+        tile = replace(tile, x0=tile.x0 + shift, x1=tile.x1 + shift)
     part = _plate(tile, lay)
-    far_corners = part.edges().filter_by(Axis.Z).group_by(Axis.X)[-1]
+    far_corners = part.edges().filter_by(Axis.Z).group_by(Axis.X)[0 if on_left else -1]
     part = fillet(far_corners, radius=p.corner_radius)
-    part += tabs(lay, tile.x0, -1)
+    part += tabs(lay, tile.x1, 1) if on_left else tabs(lay, tile.x0, -1)
 
     mx, my = lay.module_centre
-    part = _engrave(part, Sketch() + [Pos(mx, my) * _ring(*p.module, p.groove_width)], lay)
+    module_at = Pos(mx + shift, my) * Rot(Z=180 if on_left else 0)
+    dials_at = [Pos(tile.x0 + x, y) for x, y in p.dials]
+    inner, outer = p.ring_diameters
+    marks = [module_at * _ring(*p.module, p.groove_width)]
+    marks += [at * (Circle(outer / 2) - Circle(inner / 2)) for at in dials_at]
+    part = _engrave(part, Sketch() + marks, lay)
     c = p.hole_clearance
     bw, bh = p.module_button
     holes = Sketch() + [
@@ -94,11 +106,18 @@ def side_tile(lay: Layout) -> Part:
         *(Pos(*o) * Rectangle(bw + 2 * c, bh + 2 * c) for o in p.module_button_offsets),
         *(Pos(*o) * Circle(p.module_mount_hole / 2) for o in p.module_mount_offsets),
     ]
-    return _cut_through(part, Pos(mx, my) * holes, lay)
+    shafts = [at * Circle(p.encoder_bushing / 2 + c) for at in dials_at]
+    return _cut_through(part, Sketch() + [module_at * holes, *shafts], lay)
 
 
 def side_tile_on_left(lay: Layout, side: Part) -> Part:
-    """The side tile turned round to sit on the key area's left end (R8)."""
+    """The side tile for the key area's left end.
+
+    A reversible tile is the same print turned round (R8). Any other layout needs
+    its own print, because turning it would move the dials to the back.
+    """
+    if not lay.side_reversible:
+        return side_tile(lay, on_left=True)
     mx, my = lay.module_centre
     turned = Pos(mx, my) * Rot(Z=180) * Pos(-mx, -my) * side
     return Pos(-lay.outer_width, 0, 0) * turned
@@ -107,6 +126,17 @@ def side_tile_on_left(lay: Layout, side: Part) -> Part:
 def deck_tiles(lay: Layout) -> list[Part]:
     """Every tile in assembled position, left to right, dial on the right."""
     return [key_tile(lay, i) for i in range(len(lay.key_tiles))] + [side_tile(lay)]
+
+
+def dummy_knob(lay: Layout, diameter: float) -> Part:
+    """A stand-in knob whose peg plugs into a shaft hole, ending above the desk.
+
+    It prints as built: top face on the bed, peg up.
+    """
+    p = lay.params
+    peg = p.encoder_bushing / 2 + p.hole_clearance - p.knob_peg_play
+    body = extrude(Circle(diameter / 2), p.knob_height)
+    return body + Pos(0, 0, p.knob_height) * extrude(Circle(peg), p.thickness - 0.2)
 
 
 def plate_slab(lay: Layout, angle: float, grow: float = 0.0) -> Part:

@@ -61,7 +61,17 @@ class Layout:
     @property
     def module_centre(self) -> tuple[float, float]:
         side = self.side_tile
-        return ((side.x0 + side.x1) / 2, self.outer_depth / 2)
+        p = self.params
+        if p.module_rear_margin is None:
+            y = self.outer_depth / 2
+        else:
+            y = self.outer_depth - p.module_rear_margin - p.module[1] / 2
+        return ((side.x0 + side.x1) / 2, y)
+
+    @property
+    def side_reversible(self) -> bool:
+        """One printed side tile serves both ends only if turning it moves nothing."""
+        return self.params.module_rear_margin is None and not self.params.dials
 
     def wedge_rise(self, angle: float) -> float:
         """Height of the plate's back edge when its front edge rests on the desk."""

@@ -47,16 +47,31 @@ Import the `.3mf` files into Bambu Studio. Each part is already oriented for pri
 ### Assemble
 
 - Tiles join with dovetails in the top and bottom border bands. Slide each tab into its socket from above, on a flat desk.
-- The side tile (OLED and dial) fits either end of the key area. As printed it goes on the right. Turn it round 180° to put the dial on the left.
+- The THI-82 side tile (OLED and dial) fits either end of the key area. As printed it goes on the right. Turn it round 180° to put the dial on the left.
 - Wedges clip onto a tile's back edge and hold it at 8° or 15°. Use one per tile, because the joints keep the tiles in line but not level with each other.
 
 If the joints are too tight or too loose, change `joint_clearance` in `src/opendeck_case/params.py` and rebuild. The default is 0 mm per side: on the P1S, 0.2 printed loose and 0.00 fit best of the joint-fit pieces. To check another printer or material without reprinting plates, print the `joint-fit` pieces from `thi-82-2x8`: four identical tab blocks and four socket blocks engraved with their clearance (0.00, 0.05, 0.10, 0.15 mm). Push each tab into a socket and pick the tightest one that still goes together by hand.
+
+## The THI-87 print set
+
+`mise run case -- build thi-87` builds the 2×8's side section with two more dials. It is still 71.2 × 80 mm (77.2 mm wide on the bed, with the tab), so the deck stays 295.2 × 80 mm. The module moves to 3 mm from the rear edge, and two dials sit in front of it, 35.6 mm apart, each with an engraved Ø20–28 mm band where its LED ring will be.
+
+| Part | Quantity | What |
+|---|---|---|
+| `side` | 1 | Side tile for the right end |
+| `side-left` | 1 | Side tile for the left end: module turned round, dials still in front |
+| `knob` | 2 | Ø16 mm dummy knob for the new dials |
+| `knob-module` | 1 | Ø14 mm dummy of the module's knob |
+
+Print only the side tile for the end you want to try, or both. Unlike the THI-82 side tile, these can't be turned round. The key tile and wedges from `thi-82-2x8` are reused, so this set doesn't export them.
+
+The knobs print top face down and plug into the shaft holes. Try the plate without the module or encoders fitted: they would hang below the plate into the desk and the wedge. Keep the side tile's wedge in the middle of its back edge (20–50 mm from the tile's left edge), so its lip covers neither a button nor a mounting hole.
 
 ## Layout
 
 | Module | Role |
 |---|---|
-| `params.py` | Deck parameters and the two variants |
+| `params.py` | Deck parameters and the variants |
 | `layout.py` | Derived sizes, keycap positions, tile cuts (no CAD) |
 | `joints.py`, `parts.py` | Dovetails, tiles and wedges as solids |
 | `export.py`, `preview.py` | STL/3MF/STEP and the PNG drawings |
