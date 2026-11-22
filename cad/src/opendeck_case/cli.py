@@ -46,6 +46,8 @@ def _build(set_name: str, out: Path, bed: Bed | None) -> dict:
             "parts": [],
         }
         for bp in group.parts:
+            if print_set.only and bp.name not in print_set.only:
+                continue
             stem = f"{group.name}-{bp.name}"
             files = export_part(bp.part, out, stem)
             files["png"] = part_png(bp.part, out / f"{stem}.png", stem)

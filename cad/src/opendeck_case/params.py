@@ -4,7 +4,7 @@ All lengths are millimetres. A deck variant is a `DeckParams`; change a value
 here (or with `dataclasses.replace`) and every part follows.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 
 @dataclass(frozen=True)
@@ -57,6 +57,16 @@ class DeckParams:
         (29.48, -14.37),
     )
 
+    # Extra dials with LED rings (THI-87). A variant with these moves the module
+    # to `module_rear_margin` from the back edge; None centres it.
+    module_rear_margin: float | None = None
+    dials: tuple[tuple[float, float], ...] = ()  # from the side tile's front-left corner
+    ring_diameters: tuple[float, float] = (20.0, 28.0)  # the engraved light ring
+    dial_knob: float = 16.0
+    module_knob: float = 14.0  # the supplied knob, estimated from the product photo
+    knob_height: float = 15.0
+    knob_peg_play: float = 0.15  # per side in the bushing hole, so a dummy knob turns
+
     # Plate, marks and label (KTD3).
     thickness: float = 4.0
     corner_radius: float = 4.0  # the side tile's two outer corners
@@ -98,9 +108,24 @@ def block_2x8() -> DeckParams:
     return DeckParams(name="block_2x8", columns=8, rows=2)
 
 
+def block_2x8_dials() -> DeckParams:
+    """The 2x8 block with two ringed dials in front of the module (THI-87)."""
+    return replace(
+        block_2x8(),
+        name="block_2x8_dials",
+        module_rear_margin=3.0,
+        dials=((17.8, 21.0), (53.4, 21.0)),
+    )
+
+
 def strip_1x16() -> DeckParams:
     """The 1×16 strip: 16 keys."""
     return DeckParams(name="strip_1x16", columns=16, rows=1)
 
 
-VARIANTS = {"block_4x8": block_4x8, "strip_1x16": strip_1x16, "block_2x8": block_2x8}
+VARIANTS = {
+    "block_4x8": block_4x8,
+    "strip_1x16": strip_1x16,
+    "block_2x8": block_2x8,
+    "block_2x8_dials": block_2x8_dials,
+}

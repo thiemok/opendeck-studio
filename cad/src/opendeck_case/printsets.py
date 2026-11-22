@@ -9,7 +9,14 @@ from build123d import Part
 from . import checks
 from .layout import layout
 from .params import VARIANTS, Bed, DeckParams
-from .parts import coupon_socket, coupon_tab, deck_tiles, side_tile_on_left, wedge_for_print
+from .parts import (
+    coupon_socket,
+    coupon_tab,
+    deck_tiles,
+    dummy_knob,
+    side_tile_on_left,
+    wedge_for_print,
+)
 
 JOINT_FIT_CLEARANCES = (0.0, 0.05, 0.1, 0.15)
 JOINT_FIT_VARIANT = "block_2x8"  # whose dovetail the coupons copy
@@ -21,6 +28,7 @@ class PrintSet:
     description: str
     variants: tuple[str, ...]
     joint_fit: bool = False
+    only: tuple[str, ...] = ()  # part names to export; empty means every part
 
 
 PRINT_SETS = {
@@ -36,6 +44,13 @@ PRINT_SETS = {
             description="The 2x8 block mock-up plus joint-fit coupons (THI-82, second round)",
             variants=("block_2x8",),
             joint_fit=True,
+        ),
+        PrintSet(
+            name="thi-87",
+            description="Side tiles with two ringed dials, plus dummy knobs (THI-87)",
+            variants=("block_2x8_dials",),
+            # The key tile and wedges are unchanged from thi-82-2x8.
+            only=("side", "side-left", "knob", "knob-module"),
         ),
     )
 }
@@ -74,6 +89,14 @@ def build_variant(name: str, bed: Bed | None = None) -> BuiltGroup:
         for angle in lay.params.wedge_angles
     ]
     left = side_tile_on_left(lay, tiles[-1])
+    if not lay.side_reversible:
+        parts.append(BuiltPart("side-left", left))
+    if lay.params.dials:
+        p = lay.params
+        parts += [
+            BuiltPart("knob", dummy_knob(lay, p.dial_knob), quantity=len(p.dials)),
+            BuiltPart("knob-module", dummy_knob(lay, p.module_knob)),
+        ]
     return BuiltGroup(
         name=name,
         bed=lay.params.bed,
@@ -82,6 +105,7 @@ def build_variant(name: str, bed: Bed | None = None) -> BuiltGroup:
         outer_mm=(round(lay.outer_width, 2), round(lay.outer_depth, 2)),
         checks={
             "outline": lambda: checks.outline_matches(tiles, lay),
+            "outline_dial_left": lambda: checks.outline_matches([left, *tiles[:-1]], lay),
             "joints_dial_right": lambda: checks.joints_clear(tiles),
             "joints_dial_left": lambda: checks.joints_clear([left, tiles[0]]),
         },
