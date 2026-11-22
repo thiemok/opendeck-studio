@@ -34,11 +34,6 @@ impl Debouncer {
         self.candidate == self.stable
     }
 
-    /// The debounced level: true from a counted press until a counted release.
-    pub fn pressed(&self) -> bool {
-        self.stable
-    }
-
     /// Returns an edge when the new level has held for the interval.
     pub fn update(&mut self, pressed: bool, now_ms: u64) -> Option<Edge> {
         if pressed != self.candidate {
@@ -106,20 +101,6 @@ mod tests {
         assert!(
             d.settled(),
             "a bounce back to the stable level leaves nothing pending"
-        );
-    }
-
-    #[test]
-    fn pressed_reports_the_debounced_level_not_the_raw_one() {
-        let mut d = Debouncer::new(DEFAULT_INTERVAL_MS);
-        d.update(true, 0);
-        assert!(!d.pressed(), "not yet counted");
-        d.update(true, 20);
-        assert!(d.pressed());
-        d.update(false, 25);
-        assert!(
-            d.pressed(),
-            "a release waiting out the interval is still pressed"
         );
     }
 

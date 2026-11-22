@@ -123,7 +123,10 @@ pub async fn inputs_task(expander: &'static Expander, mut interrupt: Input<'stat
                 }
                 Err(e) => {
                     if !failing {
-                        warn!("MCP23017 read failed: {e:?}; retrying every 100 ms");
+                        warn!(
+                            "MCP23017 read failed: {e:?}; retrying every {} ms",
+                            RETRY_AFTER_FAILURE.as_millis()
+                        );
                         failing = true;
                     }
                     Timer::after(RETRY_AFTER_FAILURE).await;
@@ -134,13 +137,14 @@ pub async fn inputs_task(expander: &'static Expander, mut interrupt: Input<'stat
                 }
             };
             let now_us = Instant::now().as_micros();
-            match sampler.update(levels[KEY_A], now_us / 1000) {
+            let now_ms = now_us / 1000;
+            match sampler.update(levels[KEY_A], now_ms) {
                 Some(Reference::Sample) => record_reference_delay(now_us, &mut delays),
                 Some(Reference::Rearm) => REFERENCE_EDGE_US.lock(|edge| edge.set(None)),
                 None => {}
             }
             for ((button, level), debouncer) in BUTTONS.iter().zip(levels).zip(&mut debouncers) {
-                if let Some(edge) = debouncer.update(level, now_us / 1000) {
+                if let Some(edge) = debouncer.update(level, now_ms) {
                     let pressed = edge == Edge::Pressed;
                     info!(
                         "{button:?} {}",
@@ -155,7 +159,8 @@ pub async fn inputs_task(expander: &'static Expander, mut interrupt: Input<'stat
                 Next::Poll { warn_stuck } => {
                     if warn_stuck {
                         warn!(
-                            "INTB stays low after reads; is IB wired to GPIO37? polling every 2 ms"
+                            "INTB stays low after reads; is IB wired to GPIO37? polling every {} ms",
+                            SAMPLE_PERIOD.as_millis()
                         );
                     }
                 }
@@ -177,7 +182,10 @@ fn record_reference_delay(now_us: u64, delays: &mut Samples) {
     };
     let elapsed = now_us.saturating_sub(edge_us);
     if elapsed > MAX_REFERENCE_AGE_US {
-        info!("KEY A edge stamp is {elapsed} µs old, over the 250 ms limit; not counted");
+        info!(
+            "KEY A edge stamp is {elapsed} µs old, over the {} ms limit; not counted",
+            MAX_REFERENCE_AGE_US / 1000
+        );
         return;
     }
     let delay_us = u32::try_from(elapsed).unwrap_or(u32::MAX);

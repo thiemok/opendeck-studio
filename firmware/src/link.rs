@@ -84,6 +84,13 @@ impl Displays {
             .unwrap_or(Err(DrawError::NotSelected))
     }
 
+    /// The key to pause and draw `control`'s image on. A bench key without a panel gets
+    /// none, so it is decoded instead and page-change times don't count it as free.
+    fn panel_for(&self, control: Control, draw: bool) -> Option<Key> {
+        key_for(control, draw)
+            .filter(|&key| !matches!(control, Control::Bench(_)) || self.has_key(key))
+    }
+
     fn has_key(&self, key: Key) -> bool {
         match key {
             Key::A => self.key_a.is_some(),
@@ -382,12 +389,7 @@ async fn serve(
                             }
                             Event::Draw { control, bitmap } => {
                                 let received = line_started.elapsed();
-                                // A bench key without a panel is still decoded, so
-                                // page-change times don't count it as free.
-                                let panel = key_for(control, surface.draw).filter(|&key| {
-                                    !matches!(control, Control::Bench(_)) || displays.has_key(key)
-                                });
-                                if let Some(key) = panel {
+                                if let Some(key) = displays.panel_for(control, surface.draw) {
                                     paused = Some(Paused::Draw {
                                         control,
                                         key,
@@ -553,14 +555,14 @@ fn drawn(
     control: Control,
     wire_bytes: usize,
     received: Duration,
-    drawn: Duration,
+    draw_time: Duration,
     result: Result<(), DrawError>,
 ) {
     if let Err(e) = result {
         warn!("{} bitmap not drawn: {e:?}", control.id());
         return;
     }
-    let (received_ms, drawn_ms) = (received.as_millis(), drawn.as_millis());
+    let (received_ms, drawn_ms) = (received.as_millis(), draw_time.as_millis());
     let Control::Bench(key) = control else {
         info!(
             "{} bitmap {wire_bytes} B received in {received_ms} ms, drawn in {drawn_ms} ms",
