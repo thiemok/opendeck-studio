@@ -7,6 +7,7 @@
 
 pub mod base64;
 pub mod bitmap;
+pub mod buttons;
 pub mod config;
 pub mod console;
 pub mod crc32;

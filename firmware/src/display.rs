@@ -56,6 +56,9 @@ pub enum DrawError {
     NoPngWorkspace,
     /// The expander didn't take the chip select, so nothing was sent to the panel.
     NotSelected,
+    /// The line held for the draw no longer parsed to a bitmap; it was already parsed once,
+    /// so this means the framer's buffer changed underneath.
+    NotHeld,
 }
 
 /// Whether a `BITMAP` value is a PNG data URL rather than base64 `rgb`.

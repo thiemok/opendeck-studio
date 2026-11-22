@@ -12,12 +12,12 @@ use crate::oled::Oled;
 use crate::{HOST, HOST_CHANGED, SURFACE, encoder};
 use alloc::boxed::Box;
 use deck_core::config::HostConfig;
-use deck_core::expander::Key;
+use deck_core::expander::{Key, key_for};
 use deck_core::latency::{RoundTrips, WINDOW};
 use deck_core::line::{Flow, Frame, LineFramer, LineWriter, Message};
 use deck_core::pagetime::{Drawn, PageChange, PageTimer};
 use deck_core::png::PngWorkspace;
-use deck_core::session::{Control, Event, ImageFormat, Layout, SILENCE_TIMEOUT_MS, Session};
+use deck_core::session::{self, Control, Event, ImageFormat, Layout, SILENCE_TIMEOUT_MS, Session};
 use embassy_futures::select::{Either, Either4, select, select4};
 use embassy_net::Stack;
 use embassy_net::dns::DnsQueryType;
@@ -68,13 +68,21 @@ impl Displays {
     }
 
     /// Draws a Companion bitmap on a key, selecting its panel around the synchronous draw
-    /// (THI-89 KTD3). [`key_for`] says which controls are drawn on a key.
+    /// (THI-89 KTD3). [`key_for`] says which controls are drawn on a key. A key missing
+    /// since boot drops its images quietly; boot already logged why (KTD6).
     async fn draw_key(
         &mut self,
         key: Key,
         bitmap: &str,
         png: Option<&mut PngWorkspace>,
     ) -> Result<(), DrawError> {
+        let present = match key {
+            Key::A => self.key_a.is_some(),
+            Key::B => self.key_b.is_some(),
+        };
+        if !present {
+            return Ok(());
+        }
         self.on_key(key, |panel| panel.bitmap(bitmap, png))
             .await
             .unwrap_or(Err(DrawError::NotSelected))
@@ -107,19 +115,6 @@ impl Displays {
         if let Err(e) = self.oled.flush().await {
             warn!("OLED write failed: {e:?}");
         }
-    }
-}
-
-/// The key panel a control's images are drawn on. Bench keys `0/0` and `0/1` are the
-/// physical keys; the others are only decoded, unless `draw` sends them to panel A (even)
-/// or B (odd) as well, adding the SPI time a real deck would spend (THI-76).
-fn key_for(control: Control, draw: bool) -> Option<Key> {
-    match control {
-        Control::KeyA | Control::Bench(0) => Some(Key::A),
-        Control::KeyB | Control::Bench(1) => Some(Key::B),
-        Control::Bench(n) if draw && n % 2 == 0 => Some(Key::A),
-        Control::Bench(_) if draw => Some(Key::B),
-        Control::Bench(_) | Control::Encoder => None,
     }
 }
 
@@ -436,12 +431,14 @@ async fn serve(
                             received,
                         }) => {
                             let line = framer.held_line().unwrap_or_default();
-                            let bitmap = Message::parse(line)
-                                .ok()
-                                .and_then(|msg| msg.get("BITMAP").map(|v| v.raw()))
-                                .unwrap_or_default();
+                            let msg = Message::parse(line).ok();
                             let draw_start = Instant::now();
-                            let result = displays.draw_key(key, bitmap, png.as_deref_mut()).await;
+                            let result = match msg.as_ref().and_then(session::bitmap) {
+                                Some(bitmap) => {
+                                    displays.draw_key(key, bitmap, png.as_deref_mut()).await
+                                }
+                                None => Err(DrawError::NotHeld),
+                            };
                             drawn(
                                 &mut Report {
                                     session,

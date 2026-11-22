@@ -446,6 +446,52 @@ mod tests {
     }
 
     #[test]
+    fn framer_counts_a_held_line_as_a_line_start() {
+        let mut buf = [0u8; 64];
+        let mut framer = LineFramer::new(&mut buf);
+        framer.feed(b"KEY-STATE a\n", |_| Flow::Pause);
+        assert!(framer.at_line_start(), "the next byte starts a new line");
+    }
+
+    #[test]
+    fn framer_holds_a_paused_line_without_its_carriage_return() {
+        let mut buf = [0u8; 64];
+        let mut framer = LineFramer::new(&mut buf);
+        framer.feed(b"KEY-STATE a\r\nPING\n", |_| Flow::Pause);
+        assert_eq!(framer.held_line(), Some(&b"KEY-STATE a"[..]));
+    }
+
+    #[test]
+    fn framer_reset_releases_a_held_line() {
+        let mut buf = [0u8; 64];
+        let mut framer = LineFramer::new(&mut buf);
+        framer.feed(b"KEY-STATE a\n", |_| Flow::Pause);
+        framer.reset();
+        assert_eq!(framer.held_line(), None);
+    }
+
+    #[test]
+    fn framer_does_not_pause_on_an_overflow() {
+        let mut buf = [0u8; 4];
+        let mut framer = LineFramer::new(&mut buf);
+        let data = b"TOO-LONG\nPING\n";
+        let mut lines = 0;
+        let used = framer.feed(data, |f| {
+            if matches!(f, Frame::Line(_)) {
+                lines += 1;
+            }
+            Flow::Pause
+        });
+        assert_eq!(lines, 1, "the overflow was skipped, not paused on");
+        assert_eq!(
+            used,
+            data.len(),
+            "feed went on to the next line, which paused"
+        );
+        assert_eq!(framer.held_line(), Some(&b"PING"[..]));
+    }
+
+    #[test]
     fn framer_consumes_everything_when_nothing_pauses() {
         let mut buf = [0u8; 64];
         let mut framer = LineFramer::new(&mut buf);

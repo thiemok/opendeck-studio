@@ -6,7 +6,10 @@
 //!
 //! Port A drives outputs: GPA0 is key A's CS, GPA1 key B's CS, GPA2 the keys' shared RST.
 //! Port B reads the five buttons, GPB0–GPB4, each low while pressed. GPA7 and GPB7 are
-//! output-only on current chips and stay unused.
+//! output-only on current chips; they are made outputs so they never float, and stay
+//! unconnected.
+
+use crate::session::Control;
 
 /// The breakout's address with its three address jumpers open.
 pub const ADDRESS: u8 = 0x20;
@@ -28,6 +31,8 @@ const CS_A: u8 = 1 << 0;
 const CS_B: u8 = 1 << 1;
 const RST: u8 = 1 << 2;
 const OUTPUTS: u8 = CS_A | CS_B | RST;
+/// GPA7 and GPB7, output-only on current chips.
+const PIN_7: u8 = 1 << 7;
 
 pub const BUTTON_COUNT: usize = 5;
 const BUTTONS: u8 = (1 << BUTTON_COUNT) - 1;
@@ -40,8 +45,8 @@ pub const INIT: [(u8, u8); 8] = [
     // BANK = 0, interrupt pins separate, sequential addressing, push-pull, active low.
     (reg::IOCON, 0x00),
     (reg::OLATA, OUTPUTS),
-    (reg::IODIRA, !OUTPUTS),
-    (reg::IODIRB, 0xFF),
+    (reg::IODIRA, !(OUTPUTS | PIN_7)),
+    (reg::IODIRB, !PIN_7),
     (reg::IPOLB, 0x00),
     // Every button gets a pull-up. The keys need one; the module's buttons have their own
     // 10 kΩ ones, but read pressed while the module is unplugged without this.
@@ -56,6 +61,19 @@ pub const INIT: [(u8, u8); 8] = [
 pub enum Key {
     A,
     B,
+}
+
+/// The key panel a control's images are drawn on. Bench keys `0/0` and `0/1` are the
+/// physical keys; the others are only decoded, unless `draw` sends them to panel A (even)
+/// or B (odd) as well, adding the SPI time a real deck would spend (THI-76).
+pub fn key_for(control: Control, draw: bool) -> Option<Key> {
+    match control {
+        Control::KeyA | Control::Bench(0) => Some(Key::A),
+        Control::KeyB | Control::Bench(1) => Some(Key::B),
+        Control::Bench(n) if draw && n % 2 == 0 => Some(Key::A),
+        Control::Bench(_) if draw => Some(Key::B),
+        Control::Bench(_) | Control::Encoder => None,
+    }
 }
 
 /// The port-A output latch, so changing one line never clobbers another.
@@ -74,6 +92,11 @@ impl PortA {
     /// The state [`INIT`] leaves: both CS high (not selected), RST high (not in reset).
     pub const fn new() -> Self {
         Self { latch: OUTPUTS }
+    }
+
+    /// The latch as it is, for writing it again after the chip was reconfigured.
+    pub fn byte(&self) -> u8 {
+        self.latch
     }
 
     /// Selects `key` alone; returns the byte to write to [`reg::OLATA`].
@@ -120,15 +143,41 @@ mod tests {
     }
 
     #[test]
-    fn init_makes_gpa0_to_gpa2_outputs_and_leaves_gpa7_an_input() {
+    fn init_makes_gpa0_to_gpa2_outputs() {
         let iodira = init_value(reg::IODIRA);
         assert_eq!(iodira & 0b0000_0111, 0, "GPA0–GPA2 are outputs");
-        assert_ne!(iodira & 0b1000_0000, 0, "GPA7 stays an input");
+    }
+
+    #[test]
+    fn init_drives_the_output_only_gpa7_and_gpb7_instead_of_leaving_them_floating() {
+        assert_eq!(init_value(reg::IODIRA) & 0b1000_0000, 0);
+        assert_eq!(init_value(reg::IODIRB) & 0b1000_0000, 0);
+    }
+
+    #[test]
+    fn key_images_go_to_the_panel_their_control_belongs_to() {
+        assert_eq!(key_for(Control::KeyA, false), Some(Key::A));
+        assert_eq!(key_for(Control::KeyB, false), Some(Key::B));
+        assert_eq!(
+            key_for(Control::Encoder, true),
+            None,
+            "the encoder is on the OLED"
+        );
+        assert_eq!(key_for(Control::Bench(0), false), Some(Key::A));
+        assert_eq!(key_for(Control::Bench(1), false), Some(Key::B));
+    }
+
+    #[test]
+    fn other_bench_keys_are_drawn_on_alternate_panels_only_when_drawing() {
+        assert_eq!(key_for(Control::Bench(2), false), None, "decode only");
+        assert_eq!(key_for(Control::Bench(2), true), Some(Key::A));
+        assert_eq!(key_for(Control::Bench(7), true), Some(Key::B));
+        assert_eq!(key_for(Control::Bench(30), true), Some(Key::A));
     }
 
     #[test]
     fn init_reads_the_buttons_with_pull_ups_and_interrupts_on_change() {
-        assert_eq!(init_value(reg::IODIRB), 0xFF);
+        assert_eq!(init_value(reg::IODIRB) & 0b0111_1111, 0b0111_1111);
         assert_eq!(
             init_value(reg::GPPUB),
             0b0001_1111,
@@ -163,6 +212,14 @@ mod tests {
         let mut port = PortA::new();
         assert_eq!(port.select(Key::A), 0b0000_0110);
         assert_eq!(port.select(Key::B), 0b0000_0101);
+    }
+
+    #[test]
+    fn byte_returns_the_latch_without_changing_it() {
+        let mut port = PortA::new();
+        let selected = port.select(Key::B);
+        assert_eq!(port.byte(), selected);
+        assert_eq!(port.byte(), selected);
     }
 
     #[test]

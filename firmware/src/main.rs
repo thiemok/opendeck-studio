@@ -12,6 +12,7 @@ mod console;
 mod display;
 mod encoder;
 mod expander;
+mod i2c;
 mod inputs;
 mod link;
 mod oled;
@@ -41,7 +42,8 @@ use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::uart::{Config as UartConfig, UartRx};
 use esp_storage::FlashStorage;
-use expander::{Expander, I2cBus};
+use expander::Expander;
+use i2c::I2cBus;
 use log::{error, info, warn};
 use oled::Oled;
 use static_cell::{ConstStaticCell, StaticCell};
@@ -144,8 +146,8 @@ async fn main(spawner: Spawner) -> ! {
     // Pins: docs/notes/deck-wiring.md. The keys' CS and RST and the five buttons are on the
     // MCP23017, which must be up before any panel is reset or selected (THI-89).
     let _backlight = Output::new(peripherals.GPIO14, Level::High, OutputConfig::default());
-    // Async, like the PoC's OLED bus (KTD22): blocking transfers stalled the executor when
-    // Wi-Fi came up mid-transfer (THI-89 KTD1). Each transfer is bounded in `expander`.
+    // Async, like the PoC's OLED bus (KTD22), and shared with the expander; `i2c` explains
+    // why no transfer is ever cancelled (THI-89 KTD1).
     let i2c = I2c::new(
         peripherals.I2C0,
         I2cConfig::default().with_frequency(Rate::from_khz(oled::calibration::I2C_KHZ)),
@@ -182,7 +184,7 @@ async fn main(spawner: Spawner) -> ! {
         (Key::A, &mut key_a, SPI_BUF_A.take(), "KEY A"),
         (Key::B, &mut key_b, SPI_BUF_B.take(), "KEY B"),
     ] {
-        if expander.present() && expander.select(key).await {
+        if expander.present() && select_with_retries(expander, key).await {
             let mut panel = KeyDisplay::new(bus, SharedPin::new(dc), buffer);
             panel.test_pattern(label);
             expander.deselect().await;
@@ -257,4 +259,16 @@ async fn main(spawner: Spawner) -> ! {
         },
     )
     .await
+}
+
+/// Selects `key`, trying a few times so one transient bus error at boot doesn't leave the
+/// panel dark until the next reboot.
+async fn select_with_retries(expander: &Expander, key: Key) -> bool {
+    for _ in 0..3 {
+        if expander.select(key).await {
+            return true;
+        }
+        Timer::after(Duration::from_millis(10)).await;
+    }
+    false
 }

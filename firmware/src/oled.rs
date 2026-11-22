@@ -11,7 +11,7 @@
 //! the whole 25 ms frame.
 
 use crate::display::{DrawError, Status, is_png};
-use crate::expander::{self, SharedI2c};
+use crate::i2c::{self, SharedI2c};
 use core::convert::Infallible;
 use deck_core::mono::{MonoFrame, PAGES};
 use deck_core::png::PngWorkspace;
@@ -112,7 +112,7 @@ impl Oled {
     }
 
     async fn write(&self, bytes: &[u8]) -> Result<(), I2cError> {
-        expander::write(self.i2c, ADDRESS, bytes).await
+        i2c::write(self.i2c, ADDRESS, bytes).await
     }
 
     /// Takes a Companion bitmap, `rgb` or `png`. A bad `rgb` bitmap is reported and the
