@@ -60,6 +60,8 @@ const SAMPLE_PERIOD: Duration = Duration::from_millis(2);
 /// After a failed read the task waits this long before trying again, instead of spinning
 /// on a latched interrupt or on the floating line of a missing expander.
 const RETRY_AFTER_FAILURE: Duration = Duration::from_millis(100);
+/// Settled reads that must all find INTB low before it counts as stuck: about 100 ms.
+const INT_STUCK_POLLS: u32 = 50;
 /// Edge-to-detection samples between summaries.
 const SUMMARY_EVERY: usize = 20;
 /// A reference stamp older than this came from noise on the idle line, not from this press.
@@ -123,7 +125,8 @@ pub async fn inputs_task(expander: &'static Expander, mut interrupt: Input<'stat
     let mut key_a_idle = true;
     let mut delays = Samples::new(SUMMARY_EVERY);
     let mut failing = false;
-    let mut int_stuck = false;
+    // Settled reads in a row that still found INTB low.
+    let mut low_polls: u32 = 0;
     loop {
         interrupt.wait_for_low().await;
         loop {
@@ -170,15 +173,17 @@ pub async fn inputs_task(expander: &'static Expander, mut interrupt: Input<'stat
                 }
             }
             if debouncers.iter().all(Debouncer::settled) {
-                // A read clears INTB, so a line still low means it isn't reaching GPIO37
-                // (a loose wire floats low). Poll instead of spinning on the shared bus.
+                // A read clears INTB, so a line that stays low means it isn't reaching
+                // GPIO37 (a loose wire floats low). Poll instead of spinning on the shared
+                // bus. A single low read is just a new press racing the read, so warn only
+                // once it has lasted [`INT_STUCK_POLLS`] reads.
                 if !interrupt.is_low() {
-                    int_stuck = false;
+                    low_polls = 0;
                     break;
                 }
-                if !int_stuck {
-                    warn!("INTB stays low after a read; is IB wired to GPIO37? polling every 2 ms");
-                    int_stuck = true;
+                low_polls += 1;
+                if low_polls == INT_STUCK_POLLS {
+                    warn!("INTB stays low after reads; is IB wired to GPIO37? polling every 2 ms");
                 }
             }
             Timer::after(SAMPLE_PERIOD).await;
