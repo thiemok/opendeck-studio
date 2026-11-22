@@ -1,5 +1,10 @@
 //! The ScreenKeys' ST7735 panels on one shared SPI bus: test pattern, status screens and
 //! Companion bitmaps (KTD15, KTD17, KTD21).
+//!
+//! Each panel's CS sits on the MCP23017. The caller holds it low for a whole draw, not per
+//! SPI transaction, which would cost two I²C writes for each of the 30-plus transactions in
+//! a frame (THI-89 KTD3). Drawing stays synchronous; selecting is async and happens around
+//! it.
 
 use core::cell::RefCell;
 use core::convert::Infallible;
@@ -35,7 +40,7 @@ pub mod calibration {
 }
 
 pub type SpiBus = Spi<'static, Blocking>;
-type SpiDevice = RefCellDevice<'static, SpiBus, Output<'static>, Delay>;
+type SpiDevice = RefCellDevice<'static, SpiBus, NoCs, Delay>;
 type Panel = mipidsi::Display<SpiInterface<'static, SpiDevice, SharedPin>, ST7735s, NoResetPin>;
 
 /// How many `FONT_6X10` characters fit across the 128 px key.
@@ -49,6 +54,11 @@ pub enum DrawError {
     Png(PngError),
     /// A `png` bitmap arrived but the decoder's memory could not be allocated.
     NoPngWorkspace,
+    /// The expander didn't take the chip select, so nothing was sent to the panel.
+    NotSelected,
+    /// The line held for the draw no longer parsed to a bitmap; it was already parsed once,
+    /// so this means the framer's buffer changed underneath.
+    NotHeld,
 }
 
 /// Whether a `BITMAP` value is a PNG data URL rather than base64 `rgb`.
@@ -109,14 +119,22 @@ impl OutputPin for SharedPin {
     }
 }
 
-/// Pulses the shared RST line so every panel starts from a hardware reset; it then stays
-/// high. Each panel's init follows with a software reset (KTD21).
-pub fn reset_panels(rst: &mut Output<'static>) {
-    let delay = Delay::new();
-    rst.set_low();
-    delay.delay_micros(20);
-    rst.set_high();
-    delay.delay_millis(120);
+/// The SPI device's chip select. The real CS is on the expander and is held for a whole
+/// draw by the caller, so per-transaction CS does nothing.
+pub struct NoCs;
+
+impl ErrorType for NoCs {
+    type Error = Infallible;
+}
+
+impl OutputPin for NoCs {
+    fn set_low(&mut self) -> Result<(), Infallible> {
+        Ok(())
+    }
+
+    fn set_high(&mut self) -> Result<(), Infallible> {
+        Ok(())
+    }
 }
 
 pub struct KeyDisplay {
@@ -125,13 +143,9 @@ pub struct KeyDisplay {
 
 impl KeyDisplay {
     /// Initialises one panel on the shared bus; `buffer` batches pixel bytes per SPI transfer.
-    pub fn new(
-        bus: &'static RefCell<SpiBus>,
-        cs: Output<'static>,
-        dc: SharedPin,
-        buffer: &'static mut [u8],
-    ) -> Self {
-        let device = match RefCellDevice::new(bus, cs, Delay::new()) {
+    /// The caller selects the panel first.
+    pub fn new(bus: &'static RefCell<SpiBus>, dc: SharedPin, buffer: &'static mut [u8]) -> Self {
+        let device = match RefCellDevice::new(bus, NoCs, Delay::new()) {
             Ok(device) => device,
             Err(never) => match never {},
         };
@@ -151,11 +165,12 @@ impl KeyDisplay {
     /// (top-left red, top-right green, bottom-left blue, bottom-right white). If a border edge
     /// is missing, the offset is wrong; if red shows blue, the colour order is.
     pub fn test_pattern(&mut self, label: &str) {
-        self.fill(Rgb565::BLACK);
+        let panel = &mut self.panel;
+        fill(panel, Rgb565::BLACK);
         let last = i32::from(KEY_SIZE) - 1;
         let _ = Rectangle::new(Point::zero(), Size::new_equal(u32::from(KEY_SIZE)))
             .into_styled(PrimitiveStyle::with_stroke(Rgb565::WHITE, 1))
-            .draw(&mut self.panel);
+            .draw(panel);
         for (corner, color) in [
             (Point::new(4, 4), Rgb565::RED),
             (Point::new(last - 27, 4), Rgb565::GREEN),
@@ -164,23 +179,25 @@ impl KeyDisplay {
         ] {
             let _ = Rectangle::new(corner, Size::new_equal(24))
                 .into_styled(PrimitiveStyle::with_fill(color))
-                .draw(&mut self.panel);
+                .draw(panel);
         }
-        self.text_centered(label, 64, &FONT_9X15_BOLD);
+        text_centered(panel, label, 64, &FONT_9X15_BOLD);
     }
 
     pub fn status(&mut self, status: Status<'_>) {
-        self.fill(Rgb565::BLACK);
+        let panel = &mut self.panel;
+        fill(panel, Rgb565::BLACK);
         match status {
-            Status::NoWifi => self.text_centered("No Wi-Fi", 60, &FONT_9X15_BOLD),
+            Status::NoWifi => text_centered(panel, "No Wi-Fi", 60, &FONT_9X15_BOLD),
             Status::NoHost => {
-                self.text_centered("No host", 52, &FONT_9X15_BOLD);
-                self.text_centered("set it over", 76, &FONT_6X10);
-                self.text_centered("USB serial", 88, &FONT_6X10);
+                text_centered(panel, "No host", 52, &FONT_9X15_BOLD);
+                text_centered(panel, "set it over", 76, &FONT_6X10);
+                text_centered(panel, "USB serial", 88, &FONT_6X10);
             }
             Status::Connecting { host } => {
-                self.text_centered("Connecting", 52, &FONT_9X15_BOLD);
-                self.text_centered(
+                text_centered(panel, "Connecting", 52, &FONT_9X15_BOLD);
+                text_centered(
+                    panel,
                     host.get(..HOST_CHARS_PER_LINE).unwrap_or(host),
                     78,
                     &FONT_6X10,
@@ -215,21 +232,21 @@ impl KeyDisplay {
     }
 
     pub fn blank(&mut self) {
-        self.fill(Rgb565::BLACK);
+        fill(&mut self.panel, Rgb565::BLACK);
     }
+}
 
-    fn fill(&mut self, color: Rgb565) {
-        let _ = self.panel.clear(color);
-    }
+fn fill(panel: &mut Panel, color: Rgb565) {
+    let _ = panel.clear(color);
+}
 
-    fn text_centered(&mut self, text: &str, y: i32, font: &'static MonoFont<'static>) {
-        let style = MonoTextStyle::new(font, Rgb565::WHITE);
-        let _ = Text::with_alignment(
-            text,
-            Point::new(i32::from(KEY_SIZE) / 2, y),
-            style,
-            Alignment::Center,
-        )
-        .draw(&mut self.panel);
-    }
+fn text_centered(panel: &mut Panel, text: &str, y: i32, font: &'static MonoFont<'static>) {
+    let style = MonoTextStyle::new(font, Rgb565::WHITE);
+    let _ = Text::with_alignment(
+        text,
+        Point::new(i32::from(KEY_SIZE) / 2, y),
+        style,
+        Alignment::Center,
+    )
+    .draw(panel);
 }

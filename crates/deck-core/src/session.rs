@@ -314,11 +314,8 @@ impl Session {
                 let control = msg
                     .get("CONTROLID")
                     .and_then(|id| Control::from_id(id.raw(), self.config.layout));
-                match (control, msg.get("BITMAP")) {
-                    (Some(control), Some(bitmap)) => Event::Draw {
-                        control,
-                        bitmap: bitmap.raw(),
-                    },
+                match (control, bitmap(msg)) {
+                    (Some(control), Some(bitmap)) => Event::Draw { control, bitmap },
                     (Some(_), None) => Event::Ignored("KEY-STATE without BITMAP"),
                     (None, _) => Event::Ignored("KEY-STATE for an unknown control"),
                 }
@@ -423,11 +420,25 @@ fn decimal(mut n: u64, buf: &mut [u8; 20]) -> &str {
     core::str::from_utf8(&buf[i..]).unwrap_or("0")
 }
 
+/// The `BITMAP` value of a `KEY-STATE` line. The link uses it again on a line it held for a
+/// draw (THI-89 KTD3), so both read the field the same way.
+pub fn bitmap<'a>(msg: &Message<'a>) -> Option<&'a str> {
+    msg.get("BITMAP").map(|v| v.raw())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     const MAC: [u8; 6] = [0xa0, 0xb7, 0x65, 0x01, 0x02, 0xff];
+
+    #[test]
+    fn bitmap_reads_the_bitmap_field_of_a_key_state_line() {
+        let msg = Message::parse(br#"KEY-STATE CONTROLID="0/1" BITMAP="AAAA/w==""#).unwrap();
+        assert_eq!(bitmap(&msg), Some("AAAA/w=="));
+        let msg = Message::parse(br#"KEY-STATE CONTROLID="0/1""#).unwrap();
+        assert_eq!(bitmap(&msg), None);
+    }
 
     struct Harness {
         session: Session,

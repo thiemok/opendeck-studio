@@ -16,11 +16,22 @@ pub enum Frame<'a> {
     Overflow,
 }
 
+/// What the [`LineFramer::feed`] callback asks for after a line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Flow {
+    Continue,
+    /// Stop after this line and keep it readable through [`LineFramer::held_line`], so the
+    /// caller can do async work with it (such as switching a chip select over I²C) before
+    /// feeding the rest.
+    Pause,
+}
+
 /// Collects bytes into a caller-owned buffer and yields complete lines.
 pub struct LineFramer<'b> {
     buf: &'b mut [u8],
     len: usize,
     discarding: bool,
+    held: bool,
 }
 
 impl<'b> LineFramer<'b> {
@@ -29,11 +40,19 @@ impl<'b> LineFramer<'b> {
             buf,
             len: 0,
             discarding: false,
+            held: false,
         }
     }
 
-    /// Feeds received bytes, calling `on_frame` for every line they complete.
-    pub fn feed(&mut self, mut data: &[u8], mut on_frame: impl FnMut(Frame<'_>)) {
+    /// Feeds received bytes, calling `on_frame` for every line they complete. Returns how
+    /// many bytes were consumed: all of them, unless `on_frame` paused, in which case the
+    /// caller feeds the rest after handling [`Self::held_line`].
+    pub fn feed(&mut self, data: &[u8], mut on_frame: impl FnMut(Frame<'_>) -> Flow) -> usize {
+        if self.held {
+            self.reset();
+        }
+        let total = data.len();
+        let mut data = data;
         while !data.is_empty() {
             let newline = data.iter().position(|&b| b == b'\n');
             let (chunk, complete) = match newline {
@@ -50,31 +69,45 @@ impl<'b> LineFramer<'b> {
                 }
             }
             if !complete {
-                return;
+                return total;
             }
-            if self.discarding {
-                on_frame(Frame::Overflow);
+            let flow = if self.discarding {
+                on_frame(Frame::Overflow)
             } else {
-                let mut line = &self.buf[..self.len];
-                if let [rest @ .., b'\r'] = line {
-                    line = rest;
-                }
-                on_frame(Frame::Line(line));
+                on_frame(Frame::Line(self.line()))
+            };
+            data = &data[chunk.len() + 1..];
+            if flow == Flow::Pause && !self.discarding {
+                self.held = true;
+                return total - data.len();
             }
             self.reset();
-            data = &data[chunk.len() + 1..];
+        }
+        total
+    }
+
+    /// The line a callback paused on, until the next [`Self::feed`] or [`Self::reset`].
+    pub fn held_line(&self) -> Option<&[u8]> {
+        self.held.then(|| self.line())
+    }
+
+    fn line(&self) -> &[u8] {
+        match &self.buf[..self.len] {
+            [rest @ .., b'\r'] => rest,
+            line => line,
         }
     }
 
     /// Whether no partial line is buffered, i.e. the next byte starts a new line.
     pub fn at_line_start(&self) -> bool {
-        self.len == 0 && !self.discarding
+        (self.len == 0 || self.held) && !self.discarding
     }
 
     /// Drops any partial line, e.g. after the connection closes.
     pub fn reset(&mut self) {
         self.len = 0;
         self.discarding = false;
+        self.held = false;
     }
 }
 
@@ -338,9 +371,12 @@ mod tests {
     fn frames(framer: &mut LineFramer<'_>, chunks: &[&[u8]]) -> Vec<Result<Vec<u8>, ()>> {
         let mut out = Vec::new();
         for chunk in chunks {
-            framer.feed(chunk, |f| match f {
-                Frame::Line(l) => out.push(Ok(l.to_vec())),
-                Frame::Overflow => out.push(Err(())),
+            framer.feed(chunk, |f| {
+                match f {
+                    Frame::Line(l) => out.push(Ok(l.to_vec())),
+                    Frame::Overflow => out.push(Err(())),
+                }
+                Flow::Continue
             });
         }
         out
@@ -379,6 +415,90 @@ mod tests {
         assert!(!framer.at_line_start());
         frames(&mut framer, &[b"ATE\n"]);
         assert!(framer.at_line_start());
+    }
+
+    #[test]
+    fn framer_pauses_after_a_line_and_keeps_it_until_the_next_feed() {
+        let mut buf = [0u8; 64];
+        let mut framer = LineFramer::new(&mut buf);
+        let data = b"KEY-STATE a\nPING b\n";
+        let mut seen = Vec::new();
+        let used = framer.feed(data, |f| {
+            if let Frame::Line(l) = f {
+                seen.push(l.to_vec());
+            }
+            Flow::Pause
+        });
+        assert_eq!(
+            used,
+            b"KEY-STATE a\n".len(),
+            "stops right after the paused line"
+        );
+        assert_eq!(seen, vec![b"KEY-STATE a".to_vec()]);
+        assert_eq!(framer.held_line(), Some(&b"KEY-STATE a"[..]));
+        let rest = frames(&mut framer, &[&data[used..]]);
+        assert_eq!(rest, vec![Ok(b"PING b".to_vec())]);
+        assert_eq!(
+            framer.held_line(),
+            None,
+            "the next feed releases the held line"
+        );
+    }
+
+    #[test]
+    fn framer_counts_a_held_line_as_a_line_start() {
+        let mut buf = [0u8; 64];
+        let mut framer = LineFramer::new(&mut buf);
+        framer.feed(b"KEY-STATE a\n", |_| Flow::Pause);
+        assert!(framer.at_line_start(), "the next byte starts a new line");
+    }
+
+    #[test]
+    fn framer_holds_a_paused_line_without_its_carriage_return() {
+        let mut buf = [0u8; 64];
+        let mut framer = LineFramer::new(&mut buf);
+        framer.feed(b"KEY-STATE a\r\nPING\n", |_| Flow::Pause);
+        assert_eq!(framer.held_line(), Some(&b"KEY-STATE a"[..]));
+    }
+
+    #[test]
+    fn framer_reset_releases_a_held_line() {
+        let mut buf = [0u8; 64];
+        let mut framer = LineFramer::new(&mut buf);
+        framer.feed(b"KEY-STATE a\n", |_| Flow::Pause);
+        framer.reset();
+        assert_eq!(framer.held_line(), None);
+    }
+
+    #[test]
+    fn framer_does_not_pause_on_an_overflow() {
+        let mut buf = [0u8; 4];
+        let mut framer = LineFramer::new(&mut buf);
+        let data = b"TOO-LONG\nPING\n";
+        let mut lines = 0;
+        let used = framer.feed(data, |f| {
+            if matches!(f, Frame::Line(_)) {
+                lines += 1;
+            }
+            Flow::Pause
+        });
+        assert_eq!(lines, 1, "the overflow was skipped, not paused on");
+        assert_eq!(
+            used,
+            data.len(),
+            "feed went on to the next line, which paused"
+        );
+        assert_eq!(framer.held_line(), Some(&b"PING"[..]));
+    }
+
+    #[test]
+    fn framer_consumes_everything_when_nothing_pauses() {
+        let mut buf = [0u8; 64];
+        let mut framer = LineFramer::new(&mut buf);
+        let used = framer.feed(b"PING 1\nPING", |_| Flow::Continue);
+        assert_eq!(used, b"PING 1\nPING".len());
+        assert_eq!(framer.held_line(), None);
+        assert!(!framer.at_line_start());
     }
 
     #[test]

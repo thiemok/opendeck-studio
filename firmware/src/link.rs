@@ -6,16 +6,18 @@
 
 use crate::console::Describe;
 use crate::display::{DrawError, KeyDisplay, Status, decode_only};
+use crate::expander::Expander;
 use crate::inputs;
 use crate::oled::Oled;
 use crate::{HOST, HOST_CHANGED, SURFACE, encoder};
 use alloc::boxed::Box;
 use deck_core::config::HostConfig;
+use deck_core::expander::{Key, key_for};
 use deck_core::latency::{RoundTrips, WINDOW};
-use deck_core::line::{Frame, LineFramer, LineWriter, Message};
+use deck_core::line::{Flow, Frame, LineFramer, LineWriter, Message};
 use deck_core::pagetime::{Drawn, PageChange, PageTimer};
 use deck_core::png::PngWorkspace;
-use deck_core::session::{Control, Event, ImageFormat, Layout, SILENCE_TIMEOUT_MS, Session};
+use deck_core::session::{self, Control, Event, ImageFormat, Layout, SILENCE_TIMEOUT_MS, Session};
 use embassy_futures::select::{Either, Either4, select, select4};
 use embassy_net::Stack;
 use embassy_net::dns::DnsQueryType;
@@ -46,48 +48,77 @@ pub struct Buffers {
     pub out: &'static mut [u8],
 }
 
-/// Every display the surface has (KTD20).
+/// Every display the surface has (KTD20). A key is `None` when the MCP23017 that selects
+/// it is missing; its images are then dropped (THI-89 KTD6).
 pub struct Displays {
-    pub key_a: KeyDisplay,
-    pub key_b: KeyDisplay,
+    pub key_a: Option<KeyDisplay>,
+    pub key_b: Option<KeyDisplay>,
     pub oled: Oled,
+    pub expander: &'static Expander,
 }
 
 impl Displays {
     /// Shows a link state on every display and sends the OLED's frame (KTD26).
     async fn status(&mut self, status: Status<'_>) {
-        self.key_a.status(status);
-        self.key_b.status(status);
+        for key in [Key::A, Key::B] {
+            self.on_key(key, |panel| panel.status(status)).await;
+        }
         self.oled.status(status);
         self.flush_oled().await;
     }
 
-    /// Draws a Companion bitmap. The OLED's frame changes here; [`Self::flush_oled`] sends it.
-    ///
-    /// Bench keys `0/0` and `0/1` are the physical keys. The others are only decoded, unless
-    /// `draw` sends them to panel A (even) or B (odd) as well, adding the SPI time a real
-    /// deck would spend (THI-76).
-    fn bitmap(
+    /// Draws a Companion bitmap on a key, selecting its panel around the synchronous draw
+    /// (THI-89 KTD3). [`key_for`] says which controls are drawn on a key. A key missing
+    /// since boot drops its images quietly; boot already logged why (KTD6).
+    async fn draw_key(
         &mut self,
-        control: Control,
+        key: Key,
         bitmap: &str,
         png: Option<&mut PngWorkspace>,
-        draw: bool,
     ) -> Result<(), DrawError> {
-        match control {
-            Control::KeyA | Control::Bench(0) => self.key_a.bitmap(bitmap, png),
-            Control::KeyB | Control::Bench(1) => self.key_b.bitmap(bitmap, png),
-            Control::Encoder => self.oled.bitmap(bitmap, png),
-            Control::Bench(n) if draw && n % 2 == 0 => self.key_a.bitmap(bitmap, png),
-            Control::Bench(_) if draw => self.key_b.bitmap(bitmap, png),
-            Control::Bench(_) => decode_only(bitmap, png).map(|sum| debug!("checksum {sum:08x}")),
+        if !self.has_key(key) {
+            return Ok(());
+        }
+        self.on_key(key, |panel| panel.bitmap(bitmap, png))
+            .await
+            .unwrap_or(Err(DrawError::NotSelected))
+    }
+
+    /// The key to pause and draw `control`'s image on. A bench key without a panel gets
+    /// none, so it is decoded instead and page-change times don't count it as free.
+    fn panel_for(&self, control: Control, draw: bool) -> Option<Key> {
+        key_for(control, draw)
+            .filter(|&key| !matches!(control, Control::Bench(_)) || self.has_key(key))
+    }
+
+    fn has_key(&self, key: Key) -> bool {
+        match key {
+            Key::A => self.key_a.is_some(),
+            Key::B => self.key_b.is_some(),
         }
     }
 
-    fn blank(&mut self) {
-        self.key_a.blank();
-        self.key_b.blank();
+    /// Blanks both keys and the OLED's frame; [`Self::flush_oled`] sends it.
+    async fn blank(&mut self) {
+        for key in [Key::A, Key::B] {
+            self.on_key(key, KeyDisplay::blank).await;
+        }
         self.oled.blank();
+    }
+
+    /// Runs `draw` on `key`'s panel with its CS held low. `None` when the key is missing or
+    /// the expander didn't take the select.
+    async fn on_key<R>(&mut self, key: Key, draw: impl FnOnce(&mut KeyDisplay) -> R) -> Option<R> {
+        let panel = match key {
+            Key::A => self.key_a.as_mut()?,
+            Key::B => self.key_b.as_mut()?,
+        };
+        if !self.expander.select(key).await {
+            return None;
+        }
+        let result = draw(panel);
+        self.expander.deselect().await;
+        Some(result)
     }
 
     async fn flush_oled(&mut self) {
@@ -95,6 +126,17 @@ impl Displays {
             warn!("OLED write failed: {e:?}");
         }
     }
+}
+
+/// A line the framer paused on, handled once the callback has returned so the expander can
+/// be awaited (THI-89 KTD3).
+enum Paused {
+    Draw {
+        control: Control,
+        key: Key,
+        received: Duration,
+    },
+    Blank,
 }
 
 /// The socket's receive, transmit and read-chunk buffers, lent to each connection attempt.
@@ -297,19 +339,25 @@ async fn serve(
         match input {
             Either4::First(Ok(0) | Err(_)) => return Ended::Closed,
             Either4::First(Ok(n)) => {
-                if framer.at_line_start() {
-                    line_started = Instant::now();
-                }
+                let mut data = &chunk[..n];
                 let mut rejected = false;
                 let mut oled_changed = false;
-                framer.feed(&chunk[..n], |frame| match frame {
-                    Frame::Overflow => warn!("skipped a line longer than the line buffer"),
-                    Frame::Line(bytes) => {
+                while !data.is_empty() {
+                    if framer.at_line_start() {
+                        line_started = Instant::now();
+                    }
+                    let mut paused = None;
+                    let used = framer.feed(data, |frame| {
+                        let Frame::Line(bytes) = frame else {
+                            warn!("skipped a line longer than the line buffer");
+                            return Flow::Continue;
+                        };
                         let Ok(msg) = Message::parse(bytes) else {
                             warn!("unparseable line ({} B)", bytes.len());
-                            return;
+                            return Flow::Continue;
                         };
                         debug!("<- {} ({} B)", msg.command, bytes.len());
+                        let mut flow = Flow::Continue;
                         match session.line(now_ms(), &msg, out) {
                             Event::Registered => {
                                 let format = session.image_format();
@@ -327,7 +375,11 @@ async fn serve(
                                     page_timer = Some(PageTimer::new(keys));
                                     displays.oled.bench(
                                         if keys == 16 { "16 keys" } else { "32 keys" },
-                                        if surface.draw { "decode + draw" } else { "decode only" },
+                                        if surface.draw {
+                                            "decode + draw"
+                                        } else {
+                                            "decode only"
+                                        },
                                     );
                                     oled_changed = true;
                                 }
@@ -337,56 +389,39 @@ async fn serve(
                             }
                             Event::Draw { control, bitmap } => {
                                 let received = line_started.elapsed();
-                                let draw_start = Instant::now();
-                                let result =
-                                    displays.bitmap(control, bitmap, png.as_deref_mut(), surface.draw);
-                                let drawn = draw_start.elapsed();
-                                match result {
-                                    Ok(()) => {
-                                        let (received_ms, drawn_ms) =
-                                            (received.as_millis(), drawn.as_millis());
-                                        if let Control::Bench(key) = control {
-                                            // At 32 keys an info line per image would add
-                                            // UART time to every page change.
-                                            debug!(
-                                                "{} bitmap {} B received in {received_ms} ms, drawn in {drawn_ms} ms",
-                                                control.id(),
-                                                bytes.len(),
-                                            );
-                                            let done = now_ms();
-                                            let image = Drawn {
-                                                key,
-                                                line_started_ms: done
-                                                    .saturating_sub(received_ms + drawn_ms),
-                                                done_ms: done,
-                                                wire_bytes: bytes.len(),
-                                                receive_ms: ms32(received_ms),
-                                                decode_ms: ms32(drawn_ms),
-                                            };
-                                            if let Some(change) =
-                                                page_timer.as_mut().and_then(|t| t.drawn(image))
-                                            {
-                                                log_page_change(&change, session, page_timer.as_mut());
-                                            }
-                                        } else {
-                                            info!(
-                                                "{} bitmap {} B received in {received_ms} ms, drawn in {drawn_ms} ms",
-                                                control.id(),
-                                                bytes.len(),
-                                            );
-                                            if control == Control::Encoder {
-                                                oled_changed = true;
-                                            } else {
-                                                record_round_trip(round_trips, control);
-                                            }
-                                        }
-                                    }
-                                    Err(e) => warn!("{} bitmap not drawn: {e:?}", control.id()),
+                                if let Some(key) = displays.panel_for(control, surface.draw) {
+                                    paused = Some(Paused::Draw {
+                                        control,
+                                        key,
+                                        received,
+                                    });
+                                    flow = Flow::Pause;
+                                } else {
+                                    let draw_start = Instant::now();
+                                    let result = if control == Control::Encoder {
+                                        displays.oled.bitmap(bitmap, png.as_deref_mut())
+                                    } else {
+                                        decode_only(bitmap, png.as_deref_mut())
+                                            .map(|sum| debug!("checksum {sum:08x}"))
+                                    };
+                                    oled_changed |= control == Control::Encoder && result.is_ok();
+                                    drawn(
+                                        &mut Report {
+                                            session,
+                                            round_trips,
+                                            page_timer: &mut page_timer,
+                                        },
+                                        control,
+                                        bytes.len(),
+                                        received,
+                                        draw_start.elapsed(),
+                                        result,
+                                    );
                                 }
                             }
                             Event::Blank => {
-                                displays.blank();
-                                oled_changed = true;
+                                paused = Some(Paused::Blank);
+                                flow = Flow::Pause;
                             }
                             Event::Rejected(message) => {
                                 warn!("Companion rejected the device: {message}");
@@ -396,8 +431,45 @@ async fn serve(
                             Event::Close | Event::None => {}
                         }
                         line_started = Instant::now();
+                        flow
+                    });
+                    data = &data[used..];
+                    match paused {
+                        Some(Paused::Draw {
+                            control,
+                            key,
+                            received,
+                        }) => {
+                            let line = framer.held_line().unwrap_or_default();
+                            let msg = Message::parse(line).ok();
+                            let draw_start = Instant::now();
+                            let result = match msg.as_ref().and_then(session::bitmap) {
+                                Some(bitmap) => {
+                                    displays.draw_key(key, bitmap, png.as_deref_mut()).await
+                                }
+                                None => Err(DrawError::NotHeld),
+                            };
+                            drawn(
+                                &mut Report {
+                                    session,
+                                    round_trips,
+                                    page_timer: &mut page_timer,
+                                },
+                                control,
+                                line.len(),
+                                received,
+                                draw_start.elapsed(),
+                                result,
+                            );
+                            line_started = Instant::now();
+                        }
+                        Some(Paused::Blank) => {
+                            displays.blank().await;
+                            oled_changed = true;
+                        }
+                        None => {}
                     }
-                });
+                }
                 if oled_changed {
                     // The I²C write is async, so it runs after the line callback (KTD22).
                     displays.flush_oled().await;
@@ -463,6 +535,61 @@ async fn serve(
             None => warn!("outgoing line buffer overflowed; dropped"),
         }
         out.clear();
+    }
+}
+
+/// What [`drawn`] updates after an image.
+struct Report<'a> {
+    session: &'a Session,
+    round_trips: &'a mut RoundTrips,
+    page_timer: &'a mut Option<PageTimer>,
+}
+
+/// Logs an image's receive and draw times and feeds the page timer or the round trips.
+#[allow(
+    clippy::large_stack_frames,
+    reason = "about 1 KB, mostly log formatting; called from the link task, whose stack has room"
+)]
+fn drawn(
+    report: &mut Report<'_>,
+    control: Control,
+    wire_bytes: usize,
+    received: Duration,
+    draw_time: Duration,
+    result: Result<(), DrawError>,
+) {
+    if let Err(e) = result {
+        warn!("{} bitmap not drawn: {e:?}", control.id());
+        return;
+    }
+    let (received_ms, drawn_ms) = (received.as_millis(), draw_time.as_millis());
+    let Control::Bench(key) = control else {
+        info!(
+            "{} bitmap {wire_bytes} B received in {received_ms} ms, drawn in {drawn_ms} ms",
+            control.id(),
+        );
+        // The OLED's round trip ends when its frame is sent, after the callback.
+        if control != Control::Encoder {
+            record_round_trip(report.round_trips, control);
+        }
+        return;
+    };
+    // At 32 keys an info line per image would add UART time to every page change.
+    debug!(
+        "{} bitmap {wire_bytes} B received in {received_ms} ms, drawn in {drawn_ms} ms",
+        control.id(),
+    );
+    let done = now_ms();
+    let image = Drawn {
+        key,
+        line_started_ms: done.saturating_sub(received_ms + drawn_ms),
+        done_ms: done,
+        wire_bytes,
+        receive_ms: ms32(received_ms),
+        decode_ms: ms32(drawn_ms),
+    };
+    if let Some(change) = report.page_timer.as_mut().and_then(|t| t.drawn(image)) {
+        log_page_change(&change, report.session, report.page_timer.as_mut());
     }
 }
 

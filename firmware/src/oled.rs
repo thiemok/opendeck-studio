@@ -1,12 +1,17 @@
-//! The encoder module's 1.3" SH1106 OLED on async I²C: test pattern, status screens and
-//! Companion bitmaps (KTD22, KTD26).
+//! The encoder module's 1.3" SH1106 OLED on the shared I²C bus: test pattern, status screens
+//! and Companion bitmaps (KTD22, KTD26).
 //!
 //! Drawing only changes the in-memory frame and marks it dirty; [`Oled::flush`] sends it.
 //! That split lets the link convert a bitmap inside the line callback, where the bitmap text
 //! lives, and do the slow I²C write after it returns. A missing or failing panel is logged
 //! and never stops the deck.
+//!
+//! The async bus is shared with the MCP23017 (THI-89 KTD1), and each 128-byte page (about
+//! 3 ms at 400 kHz) takes the bus on its own. A button read then waits at most one page, not
+//! the whole 25 ms frame.
 
 use crate::display::{DrawError, Status, is_png};
+use crate::i2c::{self, SharedI2c};
 use core::convert::Infallible;
 use deck_core::mono::{MonoFrame, PAGES};
 use deck_core::png::PngWorkspace;
@@ -17,8 +22,7 @@ use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::{PrimitiveStyle, Rectangle};
 use embedded_graphics::text::{Alignment, Text};
-use esp_hal::Async;
-use esp_hal::i2c::master::{Error as I2cError, I2c};
+use esp_hal::i2c::master::Error as I2cError;
 use log::{info, warn};
 
 /// The module ties the SH1106's address-select line low (vendor schematic).
@@ -60,14 +64,14 @@ const INIT: [u8; 24] = [
 const WIDTH: usize = OLED_WIDTH as usize;
 
 pub struct Oled {
-    i2c: I2c<'static, Async>,
+    i2c: SharedI2c,
     frame: &'static mut MonoFrame,
     dirty: bool,
 }
 
 impl Oled {
     /// `frame` is static so the 1 KB frame never sits on a stack.
-    pub fn new(i2c: I2c<'static, Async>, frame: &'static mut MonoFrame) -> Self {
+    pub fn new(i2c: SharedI2c, frame: &'static mut MonoFrame) -> Self {
         Self {
             i2c,
             frame,
@@ -77,7 +81,7 @@ impl Oled {
 
     /// Powers the panel up; a failure is logged and drawing carries on in memory.
     pub async fn init(&mut self) {
-        match self.i2c.write_async(ADDRESS, &INIT).await {
+        match self.write(&INIT).await {
             Ok(()) => info!("OLED ready at {ADDRESS:#04x}"),
             Err(e) => warn!("OLED did not answer at {ADDRESS:#04x}: {e:?}"),
         }
@@ -99,12 +103,16 @@ impl Oled {
                 column & 0x0F,        // column, low nibble
                 0x10 | (column >> 4), // column, high nibble
             ];
-            self.i2c.write_async(ADDRESS, &address).await?;
+            self.write(&address).await?;
             data[1..].copy_from_slice(self.frame.page(page));
-            self.i2c.write_async(ADDRESS, &data).await?;
+            self.write(&data).await?;
         }
         self.dirty = false;
         Ok(())
+    }
+
+    async fn write(&self, bytes: &[u8]) -> Result<(), I2cError> {
+        i2c::write(self.i2c, ADDRESS, bytes).await
     }
 
     /// Takes a Companion bitmap, `rgb` or `png`. A bad `rgb` bitmap is reported and the
