@@ -1,7 +1,0 @@
-# The P4 fork builds with the same `esp` toolchain as ../firmware, through build-std (plan KTD5).
-# mise sets RUSTUP_TOOLCHAIN for its Rust, which would override rust-toolchain.toml,
-# so pin it back to `esp` here and load espup's environment (KTD19).
-
-[env]
-RUSTUP_TOOLCHAIN = "esp"
-_.source = "{{config_root}}/../.esp/export-esp.sh"

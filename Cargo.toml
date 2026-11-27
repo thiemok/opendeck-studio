@@ -3,7 +3,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/deck-core"]
-exclude = ["firmware", "firmware-p4"]
+exclude = ["firmware"]
 
 [workspace.package]
 edition = "2024"

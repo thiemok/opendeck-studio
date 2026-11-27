@@ -4,7 +4,7 @@
 //! The task waits on the interrupt line's level, not an edge, so an interrupt left
 //! asserted wakes it again instead of being lost.
 //!
-//! Bench only: key A's switch may also be wired to GPIO32, and the task logs how long the
+//! Bench only: key A's switch may also be wired to the reference pin, and the task logs how long the
 //! expander path took to see a press on it. The edge is stamped in a GPIO interrupt
 //! handler: key draws and OLED writes run synchronously on the executor and would hide
 //! exactly the wait being measured.
@@ -43,7 +43,7 @@ const MAX_REFERENCE_AGE_US: u64 = 250_000;
 /// then dropped, which matches "never queued" for a link that isn't registered.
 pub static EDGES: Channel<CriticalSectionRawMutex, (Button, bool), 16> = Channel::new();
 
-/// The bench-only reference pin (GPIO32), owned by the GPIO interrupt handler.
+/// The bench-only reference pin, owned by the GPIO interrupt handler.
 static REFERENCE_PIN: Mutex<CriticalSectionRawMutex, RefCell<Option<Input<'static>>>> =
     Mutex::new(RefCell::new(None));
 /// When the reference pin first fell, in µs since boot. Later bounces keep the first stamp;
@@ -51,8 +51,9 @@ static REFERENCE_PIN: Mutex<CriticalSectionRawMutex, RefCell<Option<Input<'stati
 static REFERENCE_EDGE_US: Mutex<CriticalSectionRawMutex, Cell<Option<u64>>> =
     Mutex::new(Cell::new(None));
 
-/// Installs the GPIO interrupt handler that stamps the reference pin's falling edges. The
-/// handler clears only that pin's status, so async waits on other pins keep working.
+/// Installs the GPIO interrupt handler that stamps the reference pin's falling edges and,
+/// on boards that decode the encoder in software, steps the decoder. It clears only those
+/// pins' status, so async waits on other pins keep working.
 pub fn install_reference(io: &mut Io<'_>, mut pin: Input<'static>) {
     io.set_interrupt_handler(gpio_handler);
     REFERENCE_PIN.lock(|slot| {
@@ -63,6 +64,7 @@ pub fn install_reference(io: &mut Io<'_>, mut pin: Input<'static>) {
 
 #[handler]
 fn gpio_handler() {
+    crate::board::on_gpio_interrupt();
     REFERENCE_PIN.lock(|slot| {
         let mut slot = slot.borrow_mut();
         let Some(pin) = slot.as_mut() else {
@@ -159,7 +161,8 @@ pub async fn inputs_task(expander: &'static Expander, mut interrupt: Input<'stat
                 Next::Poll { warn_stuck } => {
                     if warn_stuck {
                         warn!(
-                            "INTB stays low after reads; is IB wired to GPIO37? polling every {} ms",
+                            "INTB stays low after reads; is IB wired to {}? polling every {} ms",
+                            crate::board::INTB_PIN,
                             SAMPLE_PERIOD.as_millis()
                         );
                     }

@@ -161,7 +161,7 @@ impl Oled {
     pub fn status(&mut self, status: Status<'_>) {
         self.blank();
         match status {
-            Status::NoNetwork => self.text_centered(crate::NO_NETWORK, 36, &FONT_9X15_BOLD),
+            Status::NoNetwork => self.text_centered(crate::board::NO_NETWORK, 36, &FONT_9X15_BOLD),
             Status::NoHost => {
                 self.text_centered("No host", 24, &FONT_9X15_BOLD);
                 self.text_centered("set it over", 42, &FONT_6X10);

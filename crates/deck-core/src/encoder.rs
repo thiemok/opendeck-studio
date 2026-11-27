@@ -1,8 +1,9 @@
 //! Turns the encoder's hardware count into whole detents (KTD23).
 //!
-//! The ESP32's pulse counter resets to zero when it reaches its high or low limit instead of
-//! wrapping, so readings are compared modulo that limit. Partial steps are kept until they add
-//! up to a detent, so a knob nudged and released emits nothing.
+//! The count resets to zero when it reaches its high or low limit instead of wrapping (the
+//! ESP32's pulse counter does, and [`crate::quadrature::Quadrature`] copies it), so readings
+//! are compared modulo that limit. Partial steps are kept until they add up to a detent, so a
+//! knob nudged and released emits nothing.
 
 /// Feed it successive counter readings; it returns the detents completed in between.
 pub struct DetentCounter {

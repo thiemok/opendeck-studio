@@ -7,6 +7,7 @@
 )]
 #![deny(clippy::large_stack_frames)]
 
+mod board;
 mod config_store;
 mod console;
 mod display;
@@ -16,7 +17,6 @@ mod i2c;
 mod inputs;
 mod link;
 mod oled;
-mod wifi;
 
 use core::cell::{Cell, RefCell};
 use deck_core::config::HostConfig;
@@ -32,15 +32,9 @@ use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
-use esp_hal::efuse::{self, InterfaceMacAddress};
-use esp_hal::gpio::{Input, InputConfig, Io, Level, Output, OutputConfig, Pull};
-use esp_hal::i2c::master::{Config as I2cConfig, I2c};
-use esp_hal::pcnt::Pcnt;
-use esp_hal::spi::Mode;
-use esp_hal::spi::master::{Config as SpiConfig, Spi};
-use esp_hal::time::Rate;
+use esp_hal::efuse;
+use esp_hal::gpio::Output;
 use esp_hal::timer::timg::TimerGroup;
-use esp_hal::uart::{Config as UartConfig, UartRx};
 use esp_storage::FlashStorage;
 use expander::Expander;
 use i2c::I2cBus;
@@ -95,9 +89,6 @@ static KEY_DC: StaticCell<RefCell<Output<'static>>> = StaticCell::new();
 static I2C_BUS: StaticCell<AsyncMutex<CriticalSectionRawMutex, I2cBus>> = StaticCell::new();
 static EXPANDER: StaticCell<Expander> = StaticCell::new();
 
-/// What the displays show until the network has an address (THI-84 KTD11).
-pub const NO_NETWORK: &str = "No Wi-Fi";
-
 /// How long the calibration patterns stay up at boot.
 const TEST_PATTERN_TIME: Duration = Duration::from_secs(3);
 
@@ -110,24 +101,23 @@ async fn main(spawner: Spawner) -> ! {
     esp_println::logger::init_logger_from_env();
 
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
-    let peripherals = esp_hal::init(config);
+    // Pins and buses come from the board layer (THI-84 KTD4).
+    let board = board::Board::new(esp_hal::init(config));
+    board::init_heap();
 
-    esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 98768);
-    esp_alloc::heap_allocator!(size: 36 * 1024);
-
-    let timg0 = TimerGroup::new(peripherals.TIMG0);
-    esp_rtos::start(timg0.timer0, peripherals.FROM_CPU_INTR0);
+    let timg0 = TimerGroup::new(board.timg0);
+    esp_rtos::start(timg0.timer0, board.sw_interrupt);
 
     let rev = efuse::chip_revision();
     info!(
         "opendeck booting: chip {:?} rev v{}.{}, free heap {} B",
-        efuse::chip_type(),
+        board::chip(),
         rev.major,
         rev.minor,
         esp_alloc::HEAP.free()
     );
 
-    let mut store = config_store::ConfigStore::new(FlashStorage::new(peripherals.FLASH));
+    let mut store = config_store::ConfigStore::new(FlashStorage::new(board.flash));
     match store.locate() {
         Some((offset, len)) => info!(
             "{} found at {offset:#x}, {} KB",
@@ -146,39 +136,18 @@ async fn main(spawner: Spawner) -> ! {
     }
     HOST.lock(|h| h.set(saved));
 
-    // Pins: docs/notes/deck-wiring.md. The keys' CS and RST and the five buttons are on the
-    // MCP23017, which must be up before any panel is reset or selected (THI-89).
-    let _backlight = Output::new(peripherals.GPIO14, Level::High, OutputConfig::default());
+    // The keys' CS and RST and the five buttons are on the MCP23017, which must be up before
+    // any panel is reset or selected (THI-89).
+    let _backlight = board.backlight;
     // Async, like the PoC's OLED bus (KTD22), and shared with the expander; `i2c` explains
     // why no transfer is ever cancelled (THI-89 KTD1).
-    let i2c = I2c::new(
-        peripherals.I2C0,
-        I2cConfig::default().with_frequency(Rate::from_khz(oled::calibration::I2C_KHZ)),
-    )
-    .expect("I2C0 config")
-    .with_sda(peripherals.GPIO22)
-    .with_scl(peripherals.GPIO20)
-    .into_async();
-    let i2c = I2C_BUS.init(AsyncMutex::new(i2c));
+    let i2c = I2C_BUS.init(AsyncMutex::new(board.i2c));
     let expander = EXPANDER.init(Expander::new(i2c));
     if expander.init().await {
         expander.reset_panels().await;
     }
-    let spi = Spi::new(
-        peripherals.SPI2,
-        SpiConfig::default()
-            .with_frequency(Rate::from_mhz(20))
-            .with_mode(Mode::_0),
-    )
-    .expect("SPI config")
-    .with_sck(peripherals.GPIO5)
-    .with_mosi(peripherals.GPIO19);
-    let bus = SPI_BUS.init(RefCell::new(spi));
-    let dc = KEY_DC.init(RefCell::new(Output::new(
-        peripherals.GPIO27,
-        Level::Low,
-        OutputConfig::default(),
-    )));
+    let bus = SPI_BUS.init(RefCell::new(board.spi));
+    let dc = KEY_DC.init(RefCell::new(board.dc));
     // A panel is set up only while the expander selects it; without the expander its CS
     // would float, so the keys stay dark (KTD6).
     let mut key_a = None;
@@ -202,45 +171,18 @@ async fn main(spawner: Spawner) -> ! {
         warn!("OLED test pattern not shown: {e:?}");
     }
 
-    // The buttons are read through the expander, woken by its INTB on GPIO37, which is
-    // push-pull and needs no pull-up (THI-89 KTD4). GPIO32 is the bench-only reference wire
-    // from key A's switch; with nothing on it the pull-up keeps it quiet (KTD5).
-    let module_input = InputConfig::default();
-    let mut io = Io::new(peripherals.IO_MUX);
-    inputs::install_reference(
-        &mut io,
-        Input::new(
-            peripherals.GPIO32,
-            InputConfig::default().with_pull(Pull::Up),
-        ),
-    );
-    spawner.spawn(
-        inputs::inputs_task(expander, Input::new(peripherals.GPIO37, module_input))
-            .expect("spawn inputs task"),
-    );
+    // The buttons are read through the expander, woken by its INTB (THI-89 KTD4). The GPIO
+    // handler that `install_reference` installs also serves a software encoder decoder, so
+    // it goes in before the encoder starts.
+    let mut io = board.io;
+    inputs::install_reference(&mut io, board.reference);
+    spawner.spawn(inputs::inputs_task(expander, board.intb).expect("spawn inputs task"));
+    spawner.spawn(encoder::encoder_task(board.encoder.start()).expect("spawn encoder task"));
 
-    let pcnt = Pcnt::new(peripherals.PCNT);
-    let phase_a = Input::new(peripherals.GPIO34, module_input);
-    let phase_b = Input::new(peripherals.GPIO4, module_input);
-    encoder::configure(&pcnt.unit0, &phase_a, &phase_b);
-    spawner
-        .spawn(encoder::encoder_task(pcnt.unit0, [phase_a, phase_b]).expect("spawn encoder task"));
+    spawner.spawn(console::console_task(board.console_rx, store).expect("spawn console task"));
 
-    let console_rx = UartRx::new(
-        peripherals.UART0,
-        UartConfig::default().with_baudrate(115_200),
-    )
-    .expect("UART0 config")
-    .with_rx(peripherals.GPIO3)
-    .into_async();
-    spawner.spawn(console::console_task(console_rx, store).expect("spawn console task"));
-
-    let stack = wifi::start(spawner, peripherals.WIFI);
-
-    let mac: [u8; 6] = efuse::interface_mac_address(InterfaceMacAddress::Station)
-        .as_bytes()
-        .try_into()
-        .expect("6-byte MAC");
+    let mac = board::device_mac();
+    let stack = board.network.start(spawner, mac).await;
     let session = Session::new(DeviceIds::from_mac(mac));
 
     Timer::after(TEST_PATTERN_TIME).await;
