@@ -93,7 +93,7 @@ fn run(text: &str, store: &mut ConfigStore) {
         }
         Ok(Command::Slot) => {
             match store.booted_slot() {
-                Ok(Some(label)) => println!("booted {}", label.as_str()),
+                Ok(Some(label)) => println!("booted {label}"),
                 Ok(None) => println!("booted slot unknown"),
                 Err(e) => println!("could not read the booted slot: {e:?}"),
             }

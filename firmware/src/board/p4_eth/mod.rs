@@ -13,7 +13,6 @@ use embassy_executor::Spawner;
 use embassy_net::Stack;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_time::Instant;
 use esp_hal::efuse;
 use esp_hal::gpio::{Event, Input, InputConfig, Io, Level, Output, OutputConfig, Pull};
 use esp_hal::i2c::master::{Config as I2cConfig, I2c};
@@ -30,10 +29,6 @@ pub const INTB_PIN: &str = "GPIO26";
 /// `1` if the encoder count rises when turning clockwise, `-1` if it falls. Checked on the
 /// bench (`docs/notes/p4-eth-bench.md`).
 pub const CLOCKWISE_SIGN: i32 = -1;
-
-/// Edges closer than this to the last accepted one are contact bounce. A fast spin of five
-/// turns a second still leaves about 2.5 ms between edges.
-const MIN_EDGE_INTERVAL_US: u64 = 200;
 
 /// The chip as the boot log reports it.
 pub fn chip() -> impl core::fmt::Debug {
@@ -149,19 +144,15 @@ static DECODER: Mutex<CriticalSectionRawMutex, RefCell<Option<Decoder>>> =
 
 impl Encoder {
     /// Starts decoding. The GPIO interrupt handler must already be installed
-    /// ([`crate::inputs::install_reference`]); it calls [`on_gpio_interrupt`].
+    /// ([`crate::inputs::install_gpio_handler`]); it calls [`on_gpio_interrupt`].
     pub fn start(self) -> EncoderCount {
         let Self {
             mut phase_a,
             mut phase_b,
         } = self;
         DECODER.lock(|slot| {
-            let quadrature = Quadrature::new(
-                phase_a.is_high(),
-                phase_b.is_high(),
-                crate::encoder::LIMIT,
-                MIN_EDGE_INTERVAL_US,
-            );
+            let quadrature =
+                Quadrature::new(phase_a.is_high(), phase_b.is_high(), crate::encoder::LIMIT);
             phase_a.listen(Event::AnyEdge);
             phase_b.listen(Event::AnyEdge);
             slot.replace(Some(Decoder {
@@ -173,7 +164,6 @@ impl Encoder {
     }
 }
 
-/// Reads the decoder's count.
 pub struct EncoderCount;
 
 impl EncoderCount {
@@ -196,7 +186,6 @@ pub fn on_gpio_interrupt() {
         }
         a.clear_interrupt();
         b.clear_interrupt();
-        let now = Instant::now().as_micros();
-        decoder.quadrature.update(a.is_high(), b.is_high(), now);
+        decoder.quadrature.update(a.is_high(), b.is_high());
     });
 }

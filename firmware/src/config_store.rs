@@ -4,10 +4,11 @@
 //! The record format and erase-then-write logic live in `deck_core::config::store`;
 //! this only finds the partition and hands it over as a NOR flash.
 
+use alloc::string::String;
 use deck_core::config::{HostConfig, store};
 use esp_bootloader_esp_idf::ota::OtaImageState;
 use esp_bootloader_esp_idf::ota_updater::OtaUpdater;
-use esp_bootloader_esp_idf::partitions::{self, AppPartitionSubType};
+use esp_bootloader_esp_idf::partitions::{self, AppPartitionSubType, PartitionType};
 use esp_storage::FlashStorage;
 
 /// Label of the config partition declared in `partitions.csv`.
@@ -54,12 +55,10 @@ impl ConfigStore {
     }
 
     /// The booted app partition's label, as the flash cache maps it.
-    pub fn booted_slot(&mut self) -> Result<Option<SlotLabel>, partitions::Error> {
-        let mut table_buf = alloc::vec![0u8; partitions::PARTITION_TABLE_MAX_LEN];
-        let table = partitions::read_partition_table(&mut self.flash, &mut table_buf)?;
-        Ok(table
-            .booted_partition()?
-            .map(|p| SlotLabel::new(p.label_as_str())))
+    pub fn booted_slot(&mut self) -> Result<Option<String>, partitions::Error> {
+        let mut table_buf = table_buffer();
+        let table = partitions::read_partition_table(&mut self.flash, &mut *table_buf)?;
+        Ok(table.booted_partition()?.map(|p| p.label_as_str().into()))
     }
 
     /// The app slot the OTA data selects for the next boot, and its image state.
@@ -72,12 +71,26 @@ impl ConfigStore {
     }
 
     /// Selects the other app slot in the OTA data; the next boot runs it. Writes no image.
+    ///
+    /// The target is the slot that didn't boot. `OtaUpdater::activate_next_partition` picks it
+    /// from the OTA data instead, and on blank OTA data (a board flashed by espflash, which
+    /// never writes it) it selects the booted `ota_0` again.
     pub fn select_next_slot(&mut self) -> Result<AppPartitionSubType, partitions::Error> {
         let mut table_buf = table_buffer();
+        let booted = partitions::read_partition_table(&mut self.flash, &mut *table_buf)?
+            .booted_partition()?
+            .map(|p| p.partition_type());
+        let target = match booted {
+            Some(PartitionType::App(AppPartitionSubType::Ota0)) => AppPartitionSubType::Ota1,
+            Some(PartitionType::App(AppPartitionSubType::Ota1)) => AppPartitionSubType::Ota0,
+            _ => return Err(partitions::Error::Invalid),
+        };
+        let mut table_buf = table_buffer();
         let mut ota = OtaUpdater::new(&mut self.flash, &mut table_buf)?;
-        ota.activate_next_partition()?;
-        ota.set_current_ota_state(OtaImageState::Valid)?;
-        ota.selected_partition()
+        let mut data = ota.ota_data()?;
+        data.set_current_app_partition(target)?;
+        data.set_current_ota_state(OtaImageState::Valid)?;
+        Ok(target)
     }
 
     /// Runs `f` on `deckcfg` as a NOR flash. The table is re-read each time; this
@@ -105,23 +118,4 @@ fn table_buffer() -> alloc::boxed::Box<[u8; partitions::PARTITION_TABLE_MAX_LEN]
         .into_boxed_slice()
         .try_into()
         .unwrap_or_else(|_| unreachable!("the vec has the table's length"))
-}
-
-/// A partition label copied out of the table buffer.
-pub struct SlotLabel {
-    bytes: [u8; 16],
-    len: usize,
-}
-
-impl SlotLabel {
-    fn new(label: &str) -> Self {
-        let mut bytes = [0; 16];
-        let len = label.len().min(bytes.len());
-        bytes[..len].copy_from_slice(&label.as_bytes()[..len]);
-        Self { bytes, len }
-    }
-
-    pub fn as_str(&self) -> &str {
-        core::str::from_utf8(&self.bytes[..self.len]).unwrap_or("?")
-    }
 }

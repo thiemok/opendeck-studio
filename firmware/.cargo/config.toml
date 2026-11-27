@@ -21,8 +21,7 @@ rustflags = [
 ]
 
 [alias]
-# Waveshare ESP32-P4-ETH: `cargo p4` flashes and monitors, like `cargo run --release` does
-# for the Feather.
+# Waveshare ESP32-P4-ETH builds.
 p4 = "run --release --target riscv32imafc-unknown-none-elf --no-default-features --features board-p4-eth"
 p4-build = "build --release --locked --target riscv32imafc-unknown-none-elf --no-default-features --features board-p4-eth"
 p4-clippy = "clippy --release --locked --target riscv32imafc-unknown-none-elf --no-default-features --features board-p4-eth -- -D warnings"

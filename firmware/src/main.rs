@@ -101,7 +101,6 @@ async fn main(spawner: Spawner) -> ! {
     esp_println::logger::init_logger_from_env();
 
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
-    // Pins and buses come from the board layer (THI-84 KTD4).
     let board = board::Board::new(esp_hal::init(config));
     board::init_heap();
 
@@ -171,11 +170,10 @@ async fn main(spawner: Spawner) -> ! {
         warn!("OLED test pattern not shown: {e:?}");
     }
 
-    // The buttons are read through the expander, woken by its INTB (THI-89 KTD4). The GPIO
-    // handler that `install_reference` installs also serves a software encoder decoder, so
-    // it goes in before the encoder starts.
+    // The GPIO handler also serves the P4-ETH's software encoder decoder, so it goes in
+    // before the encoder starts.
     let mut io = board.io;
-    inputs::install_reference(&mut io, board.reference);
+    inputs::install_gpio_handler(&mut io, board.reference);
     spawner.spawn(inputs::inputs_task(expander, board.intb).expect("spawn inputs task"));
     spawner.spawn(encoder::encoder_task(board.encoder.start()).expect("spawn encoder task"));
 

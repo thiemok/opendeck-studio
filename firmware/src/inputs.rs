@@ -54,7 +54,7 @@ static REFERENCE_EDGE_US: Mutex<CriticalSectionRawMutex, Cell<Option<u64>>> =
 /// Installs the GPIO interrupt handler that stamps the reference pin's falling edges and,
 /// on boards that decode the encoder in software, steps the decoder. It clears only those
 /// pins' status, so async waits on other pins keep working.
-pub fn install_reference(io: &mut Io<'_>, mut pin: Input<'static>) {
+pub fn install_gpio_handler(io: &mut Io<'_>, mut pin: Input<'static>) {
     io.set_interrupt_handler(gpio_handler);
     REFERENCE_PIN.lock(|slot| {
         pin.listen(Event::FallingEdge);

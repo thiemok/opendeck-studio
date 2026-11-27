@@ -1,6 +1,5 @@
 fn main() {
     let xtensa = std::env::var("TARGET").is_ok_and(|t| t.starts_with("xtensa-"));
-    // Only the Feather joins Wi-Fi; the P4-ETH is wired (THI-84 KTD3).
     if std::env::var_os("CARGO_FEATURE_BOARD_FEATHER").is_some() {
         wifi_credentials();
     }
