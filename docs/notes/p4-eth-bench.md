@@ -2,7 +2,7 @@
 
 Does the PoC deck run on the Waveshare ESP32-P4-ETH over wired Ethernet, powered over PoE? And does the board fit under the side section, for THI-83? This note holds the runbook, the numbers and the recommendation. The plan is [2026-11-27-1330-feat-esp32-p4-eth-port-plan.md](../plans/2026-11-27-1330-feat-esp32-p4-eth-port-plan.md), and the wiring is in [deck-wiring.md](deck-wiring.md) (ESP32-P4-ETH column).
 
-> **Status:** not yet run. The firmware builds for both boards and CI checks both builds, but nothing below has been tried on hardware. Results and the recommendation come from the operator's bench numbers only.
+> **Status:** first wave run on 2026-11-27 over USB-C only, with no Ethernet cable and none of the PoC parts wired (firmware from PR #11, commit `0f1a2e1`). Steps 1 and 3 pass, and the USB-only half of step 2 passes. The steps that need Ethernet, the PoC bench, PoE or the Feather are still to do.
 
 ## What the desk research settled
 
@@ -26,7 +26,18 @@ Build and flash with `mise exec -- cargo p4` in `firmware/` (see `firmware/READM
 
 ## Results
 
-Waiting for the operator's bench run.
+### Wave 1: USB-C only (2026-11-27)
+
+| Step | Result |
+|---|---|
+| 1. Silicon | **Pass.** `espflash board-info`: `esp32p4 (revision v3.2)`, 32 MB flash, 40 MHz crystal. |
+| 2. Ethernet and Companion | **Partly run.** With no cable, the firmware starts the EMAC and the IP101 PHY without the panic a missing PHY would cause, and embassy-net reports `IPv4: DOWN`. The host survives a reboot and a full reflash: `host 192.168.201.99` was still `saved host 192.168.201.99:16622` after both (R7, cleared afterwards). DHCP, the Companion link and cable unplug/replug wait for a cable. |
+| 3. A/B boot | **Pass.** After writing the same build into `ota_1` with `--target-app-partition ota_1`, `slot next` restarted into `ota_1` (bootloader: `Loaded app from partition at offset 0x310000`; `slot`: `booted ota_1`, `next boot Ota1 (Valid)`), which survived a power-on reset. A second `slot next` brought back `ota_0` (`0x10000`). The reply line after `slot next` is cut off by the restart. |
+| 4–9 | Not run yet: they need the PoC bench, the cable, PoE or the Feather. |
+
+The boot log on a bare board, as expected without the PoC parts: `opendeck booting: chip "ESP32-P4" rev v3.2, free heap 163840 B`, `deckcfg found at 0x610000, 64 KB`, then warnings that the MCP23017 and the OLED did not answer on I²C.
+
+Opening the serial port resets the board through the CH343's DTR/RTS lines, as on the Feather.
 
 ## Fit (R18)
 
