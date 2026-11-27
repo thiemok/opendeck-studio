@@ -1,4 +1,5 @@
-//! The USB serial console: set, clear and show the Companion host (KTD13).
+//! The USB serial console: set, clear and show the Companion host (KTD13), and check A/B boot
+//! (THI-84 KTD12).
 //!
 //! Only UART0's receiver is taken here; esp-println keeps transmitting through the
 //! ROM routine at the same 115200 baud, so log output and replies share the port.
@@ -90,6 +91,31 @@ fn run(text: &str, store: &mut ConfigStore) {
             }
             println!("surface: {}", Describe(SURFACE.lock(|s| s.get())));
         }
+        Ok(Command::Slot) => {
+            match store.booted_slot() {
+                Ok(Some(label)) => println!("booted {}", label.as_str()),
+                Ok(None) => println!("booted slot unknown"),
+                Err(e) => println!("could not read the booted slot: {e:?}"),
+            }
+            match store.selected_slot() {
+                Ok((slot, state)) => println!("next boot {slot:?} ({state:?})"),
+                Err(e) => println!("no OTA selection: {e:?}"),
+            }
+            let app = &crate::ESP_APP_DESC;
+            println!(
+                "image {} built {} {}",
+                app.version(),
+                app.date(),
+                app.time()
+            );
+        }
+        Ok(Command::SlotNext) => match store.select_next_slot() {
+            Ok(slot) => {
+                println!("selected {slot:?}; restarting");
+                esp_hal::system::software_reset();
+            }
+            Err(e) => println!("could not switch slots: {e:?}"),
+        },
         Ok(Command::Help) => println!("{}", console::HELP),
         Err(ConsoleError::Empty) => {}
         Err(e) => println!("{}", e.reason()),

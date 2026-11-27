@@ -1,0 +1,44 @@
+# THI-84 fork of ../firmware for the Waveshare ESP32-P4-ETH (plan KTD1). Same pins as the
+# Feather build (PoC plan KTD9), with the esp32p4 chip features and no esp-radio: the ESP32-P4
+# has no radio, so the network is Ethernet.
+[package]
+edition      = "2024"
+name         = "opendeck-firmware-p4"
+rust-version = "1.95"
+version      = "0.1.0"
+publish      = false
+
+[dependencies]
+deck-core = { path = "../crates/deck-core" }
+
+esp-hal = { version = "~1.2.2", features = ["esp32p4", "log-04", "unstable"] }
+esp-rtos = { version = "0.4.0", features = ["embassy", "esp-alloc", "esp32p4", "log-04"] }
+esp-bootloader-esp-idf = { version = "0.6.0", features = ["embedded-storage", "esp32p4", "log-04"] }
+esp-storage = { version = "0.10.0", features = ["esp32p4"] }
+esp-alloc = { version = "0.11.0", features = ["esp32p4"] }
+esp-backtrace = { version = "0.20.0", features = ["esp32p4", "panic-handler", "println"] }
+esp-println = { version = "0.18.0", features = ["esp32p4", "log-04"] }
+embassy-executor = { version = "0.10.0", features = ["log"] }
+embassy-time = { version = "0.5.1", features = ["log"] }
+log = "0.4.27"
+
+embassy-net = { version = "0.9.1", features = ["dhcpv4", "dns", "log", "medium-ethernet", "tcp"] }
+embassy-sync = "0.8"
+embassy-futures = "0.1"
+embedded-io-async = "0.7"
+static_cell = "2.1.1"
+
+mipidsi = "0.10.0"
+embedded-graphics = "0.8"
+embedded-hal = "1.0"
+embedded-hal-bus = "0.3"
+
+# The default debug profile is too slow and too big for resource-constrained devices.
+[profile.dev]
+opt-level = "s"
+
+[profile.release]
+codegen-units = 1
+debug         = 2
+lto           = "fat"
+opt-level     = "s"

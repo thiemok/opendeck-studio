@@ -5,10 +5,12 @@
 //! host clear                     forget the host
 //! bench off|16|32 [draw]         register the normal surface or a 16/32-key bench surface
 //! show                           print the saved host and the surface
+//! slot [next]                    show the running app slot, or boot the other one
 //! help                           list the commands
 //! ```
 //!
-//! `bench` is for measuring page changes (THI-76, THI-85) and is not saved.
+//! `bench` is for measuring page changes (THI-76, THI-85) and is not saved. `slot` is for
+//! checking A/B boot on the bench (THI-84 KTD12); it switches slots, it never writes an image.
 
 use crate::config::{DEFAULT_PORT, valid_host};
 use crate::session::Layout;
@@ -26,6 +28,10 @@ pub enum Command<'a> {
         draw: bool,
     },
     Show,
+    /// Print the booted app slot, the OTA-data selection and the running image.
+    Slot,
+    /// Select the other app slot and restart.
+    SlotNext,
     Help,
 }
 
@@ -43,6 +49,8 @@ pub enum ConsoleError {
     BadPort,
     /// `bench` without `off`, `16` or `32`, or with something other than `draw` after it.
     BadBench,
+    /// `slot` with something other than `next` after it.
+    BadSlot,
     /// Not a command; the reply suggests `help`.
     Unknown,
 }
@@ -57,13 +65,14 @@ impl ConsoleError {
             Self::BadHost => "host must be a hostname or IPv4 address of at most 63 characters",
             Self::BadPort => "port must be a number from 1 to 65535",
             Self::BadBench => "usage: bench off | bench 16 [draw] | bench 32 [draw]",
+            Self::BadSlot => "usage: slot | slot next",
             Self::Unknown => "unknown command; try `help`",
         }
     }
 }
 
 pub const HELP: &str = "commands: host <hostname-or-ip>[:port] | host clear | \
-bench off|16|32 [draw] | show | help";
+bench off|16|32 [draw] | show | slot [next] | help";
 
 pub fn parse(line: &str) -> Result<Command<'_>, ConsoleError> {
     let mut words = line.split_whitespace();
@@ -83,6 +92,9 @@ pub fn parse(line: &str) -> Result<Command<'_>, ConsoleError> {
         ("host", Some("clear")) => Ok(Command::ClearHost),
         ("host", Some(target)) => parse_target(target),
         ("show", None) => Ok(Command::Show),
+        ("slot", None) => Ok(Command::Slot),
+        ("slot", Some("next")) => Ok(Command::SlotNext),
+        ("slot", Some(_)) => Err(ConsoleError::BadSlot),
         ("help", None) => Ok(Command::Help),
         ("show" | "help", Some(_)) => Err(ConsoleError::TooManyArgs),
         _ => Err(ConsoleError::Unknown),
@@ -217,6 +229,16 @@ mod tests {
         }
         assert!(ConsoleError::BadBench.reason().contains("bench 32"));
         assert!(HELP.contains("bench off|16|32 [draw]"));
+    }
+
+    #[test]
+    fn slot_commands_parse() {
+        assert_eq!(parse("slot"), Ok(Command::Slot));
+        assert_eq!(parse(" slot  next "), Ok(Command::SlotNext));
+        assert_eq!(parse("slot other"), Err(ConsoleError::BadSlot));
+        assert_eq!(parse("slot next now"), Err(ConsoleError::TooManyArgs));
+        assert!(ConsoleError::BadSlot.reason().contains("slot next"));
+        assert!(HELP.contains("slot [next]"));
     }
 
     #[test]

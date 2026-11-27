@@ -149,7 +149,7 @@ struct SocketBuffers {
 /// What the displays currently show when not registered, so they are redrawn only on change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Shown {
-    NoWifi,
+    NoNetwork,
     NoHost,
     Connecting(HostConfig),
 }
@@ -190,14 +190,14 @@ pub async fn run(
     loop {
         let host = HOST.lock(|h| h.get());
         let want = match (stack.is_config_up(), host) {
-            (false, _) => Shown::NoWifi,
+            (false, _) => Shown::NoNetwork,
             (true, None) => Shown::NoHost,
             (true, Some(config)) => Shown::Connecting(config),
         };
         if shown != Some(want) {
             displays
                 .status(match &want {
-                    Shown::NoWifi => Status::NoWifi,
+                    Shown::NoNetwork => Status::NoNetwork,
                     Shown::NoHost => Status::NoHost,
                     Shown::Connecting(config) => Status::Connecting {
                         host: config.host(),

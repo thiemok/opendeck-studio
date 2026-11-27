@@ -88,9 +88,12 @@ pub fn decode_only(bitmap: &str, ws: Option<&mut PngWorkspace>) -> Result<u32, D
 /// What the displays show while the deck is not registered with Companion (KTD17, KTD26).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status<'a> {
-    NoWifi,
+    /// No address yet; shows [`crate::NO_NETWORK`].
+    NoNetwork,
     NoHost,
-    Connecting { host: &'a str },
+    Connecting {
+        host: &'a str,
+    },
 }
 
 /// An output pin shared by both panels' interfaces: the DC line (KTD21). Only the link task
@@ -188,7 +191,7 @@ impl KeyDisplay {
         let panel = &mut self.panel;
         fill(panel, Rgb565::BLACK);
         match status {
-            Status::NoWifi => text_centered(panel, "No Wi-Fi", 60, &FONT_9X15_BOLD),
+            Status::NoNetwork => text_centered(panel, crate::NO_NETWORK, 60, &FONT_9X15_BOLD),
             Status::NoHost => {
                 text_centered(panel, "No host", 52, &FONT_9X15_BOLD);
                 text_centered(panel, "set it over", 76, &FONT_6X10);

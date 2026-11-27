@@ -95,6 +95,9 @@ static KEY_DC: StaticCell<RefCell<Output<'static>>> = StaticCell::new();
 static I2C_BUS: StaticCell<AsyncMutex<CriticalSectionRawMutex, I2cBus>> = StaticCell::new();
 static EXPANDER: StaticCell<Expander> = StaticCell::new();
 
+/// What the displays show until the network has an address (THI-84 KTD11).
+pub const NO_NETWORK: &str = "No Wi-Fi";
+
 /// How long the calibration patterns stay up at boot.
 const TEST_PATTERN_TIME: Duration = Duration::from_secs(3);
 
