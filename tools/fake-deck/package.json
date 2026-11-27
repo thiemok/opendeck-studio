@@ -9,6 +9,8 @@
   },
   "scripts": {
     "start": "node src/main.ts",
+    "companion": "docker compose up -d && node src/seed-companion.ts --if-fresh",
+    "seed": "node src/seed-companion.ts",
     "test": "node --test 'test/**/*.test.ts'",
     "typecheck": "tsc --noEmit"
   },
