@@ -2,7 +2,7 @@
 
 Does the PoC deck run on the Waveshare ESP32-P4-ETH over wired Ethernet, powered over PoE? And does the board fit under the side section, for THI-83? This note holds the runbook, the numbers and the recommendation. The plan is [2026-11-27-1330-feat-esp32-p4-eth-port-plan.md](../plans/2026-11-27-1330-feat-esp32-p4-eth-port-plan.md), and the wiring is in [deck-wiring.md](deck-wiring.md) (ESP32-P4-ETH column).
 
-> **Status:** first wave run on 2026-11-27 over USB-C only, with no Ethernet cable and none of the PoC parts wired (firmware from PR #11, commit `0f1a2e1`). Steps 1 and 3 pass, and the USB-only half of step 2 passes. The steps that need Ethernet, the PoC bench, PoE or the Feather are still to do.
+> **Status:** waves 1 and 2 run on 2026-11-27 (PR #11). Steps 1, 2 and 3 pass, step 2 after two firmware fixes recorded below; the cable unplug/replug part of step 2 is still to do. The steps that need the PoC bench, PoE or the Feather are still to do.
 
 ## What the desk research settled
 
@@ -33,7 +33,22 @@ Build and flash with `mise exec -- cargo p4` in `firmware/` (see `firmware/READM
 | 1. Silicon | **Pass.** `espflash board-info`: `esp32p4 (revision v3.2)`, 32 MB flash, 40 MHz crystal. |
 | 2. Ethernet and Companion | **Partly run.** With no cable, the firmware starts the EMAC and the IP101 PHY without the panic a missing PHY would cause, and embassy-net reports `IPv4: DOWN`. The host survives a reboot and a full reflash: `host 192.168.201.99` was still `saved host 192.168.201.99:16622` after both (R7, cleared afterwards). DHCP, the Companion link and cable unplug/replug wait for a cable. |
 | 3. A/B boot | **Pass.** After writing the same build into `ota_1` with `--target-app-partition ota_1`, `slot next` restarted into `ota_1` (bootloader: `Loaded app from partition at offset 0x310000`; `slot`: `booted ota_1`, `next boot Ota1 (Valid)`), which survived a power-on reset. A second `slot next` brought back `ota_0` (`0x10000`). The reply line after `slot next` is cut off by the restart. |
-| 4–9 | Not run yet: they need the PoC bench, the cable, PoE or the Feather. |
+| 4–9 | Not run yet: they need the PoC bench, PoE or the Feather. |
+
+### Wave 2: Ethernet to the switch, Companion on the laptop (2026-11-27)
+
+Companion 5.1.3 ran in `tools/fake-deck` on a laptop on the same subnet, over Wi-Fi.
+
+| Step | Result |
+|---|---|
+| 2. Ethernet and Companion | **Pass, after two fixes.** The link comes up about 5 s after boot and DHCP gives `192.168.201.78/24`. The deck registers as `opendeck-80f1b2dae508` (the factory MAC), switches to `png`, and decodes all three key images. |
+
+Two firmware bugs showed up and are fixed:
+
+- **Lost transmit frames.** The deck connected, received `BEGIN` and `CAPS`, and retransmitted its 540-byte `ADD-DEVICE` until Companion hung up after 5 s with no surface. Frame logging in the driver showed every frame arriving and leaving, so the frames left with bad checksums. esp-hal's driver asks the MAC to insert IP and TCP checksums, but the P4's transmit FIFO is smaller than a full frame and the MAC cannot insert a checksum in a frame larger than its FIFO. Small frames (ACKs) worked; DHCP worked because a zero UDP checksum means none. The P4 board module now has smoltcp compute transmit checksums.
+- **Floating encoder phases.** With no encoder module plugged in, the two phase pins floated, and since the P4 interrupts on every edge, the firmware stalled after a second or two of boot. They now have internal pull-ups.
+
+Bench caveat: holding the serial port open with DTR and RTS at different levels disturbs the board, because the CH343's auto-reset circuit also drives GPIO35, which is the PHY's TXD1. `espflash monitor` is fine. A script that opens the port must keep DTR and RTS equal (both asserted works).
 
 The boot log on a bare board, as expected without the PoC parts: `opendeck booting: chip "ESP32-P4" rev v3.2, free heap 163840 B`, `deckcfg found at 0x610000, 64 KB`, then warnings that the MCP23017 and the OLED did not answer on I²C.
 
