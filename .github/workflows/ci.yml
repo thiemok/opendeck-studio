@@ -96,7 +96,7 @@ jobs:
           # espup queries the GitHub API; authenticated calls avoid its rate limit.
           GITHUB_TOKEN: ${{ github.token }}
 
-      # build.rs requires wifi.env. The example's placeholders are not secrets,
+      # The Feather build's build.rs requires wifi.env. The example's placeholders are not secrets,
       # and copying it fails CI if the example and build.rs drift apart.
       - name: Placeholder wifi.env
         run: cp firmware/wifi.env.example firmware/wifi.env
@@ -108,12 +108,22 @@ jobs:
           workspaces: firmware -> target
 
       # Through `mise exec` so firmware/mise.toml switches to the esp toolchain
-      # and loads espup's environment, as in a local build.
+      # and loads espup's environment, as in a local build. The job builds both
+      # boards, so a break in either fails the required `firmware` check
+      # (THI-84 KTD7); the P4-ETH aliases are in firmware/.cargo/config.toml.
       - run: mise exec -- cargo fmt --check
         working-directory: firmware
-      - run: mise exec -- cargo build --release --locked
+      - name: Build (Feather ESP32 V2)
+        run: mise exec -- cargo build --release --locked
         working-directory: firmware
-      - run: mise exec -- cargo clippy --release --locked -- -D warnings
+      - name: Clippy (Feather ESP32 V2)
+        run: mise exec -- cargo clippy --release --locked -- -D warnings
+        working-directory: firmware
+      - name: Build (ESP32-P4-ETH)
+        run: mise exec -- cargo p4-build
+        working-directory: firmware
+      - name: Clippy (ESP32-P4-ETH)
+        run: mise exec -- cargo p4-clippy
         working-directory: firmware
 
   fake-deck:

@@ -134,7 +134,7 @@ impl SurfaceConfig {
     };
 }
 
-/// `DEVICEID` and `SERIAL`, derived from the Wi-Fi MAC so Companion remembers
+/// `DEVICEID` and `SERIAL`, derived from the device MAC so Companion remembers
 /// the surface across reboots.
 #[derive(Debug, Clone)]
 pub struct DeviceIds {

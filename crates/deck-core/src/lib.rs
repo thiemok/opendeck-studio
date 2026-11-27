@@ -19,4 +19,5 @@ pub mod line;
 pub mod mono;
 pub mod pagetime;
 pub mod png;
+pub mod quadrature;
 pub mod session;

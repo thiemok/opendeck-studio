@@ -18,3 +18,7 @@ The tile that carries the OLED and dial module and any extra dials, separate fro
 
 ### Print set
 A named collection of deck variants and their parts that one build produces, checks and hands over for printing together, each part with the quantity to print.
+
+## Flagged ambiguities
+
+- "P4" had been used both for the PoC's fourth stage (OTA and wrap-up) and for the ESP32-P4 chip. Plain "P4" means the stage; the board is written "ESP32-P4" or "P4-ETH".

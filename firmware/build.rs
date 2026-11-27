@@ -1,7 +1,12 @@
 fn main() {
-    wifi_credentials();
-    linker_be_nice();
-    check_xtensa_linker_available();
+    let xtensa = std::env::var("TARGET").is_ok_and(|t| t.starts_with("xtensa-"));
+    if std::env::var_os("CARGO_FEATURE_BOARD_FEATHER").is_some() {
+        wifi_credentials();
+    }
+    linker_be_nice(xtensa);
+    if xtensa {
+        check_xtensa_linker_available();
+    }
     // make sure linkall.x is the last linker script (otherwise might cause problems with flip-link)
     println!("cargo:rustc-link-arg=-Tlinkall.x");
 }
@@ -67,7 +72,9 @@ fn cargo_linker_env_var(target: &str) -> String {
     format!("CARGO_TARGET_{target}_LINKER")
 }
 
-fn linker_be_nice() {
+/// `xtensa` links through espup's GCC, which takes linker flags as `-Wl,...`; the RISC-V
+/// build links with `rust-lld` directly.
+fn linker_be_nice(xtensa: bool) {
     let args: Vec<String> = std::env::args().collect();
     if args.len() > 1 {
         let kind = &args[1];
@@ -126,8 +133,9 @@ fn linker_be_nice() {
         std::process::exit(0);
     }
 
+    let prefix = if xtensa { "-Wl," } else { "" };
     println!(
-        "cargo:rustc-link-arg=-Wl,--error-handling-script={}",
+        "cargo:rustc-link-arg={prefix}--error-handling-script={}",
         std::env::current_exe().unwrap().display()
     );
 }
