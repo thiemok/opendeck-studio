@@ -4,9 +4,18 @@
 //! reference clock into GPIO50. `GenericPhy` has no reset-pin handling, so the PHY's reset
 //! line (GPIO51) is pulsed here before the driver starts. The returned stack is the same
 //! `Stack<'static>` the Feather's Wi-Fi gives, so `link` cannot tell them apart.
+//!
+//! The driver asks the MAC to insert IP, TCP and UDP checksums, but the P4's transmit FIFO is
+//! too small to hold a full frame, and the MAC cannot insert checksums in a frame larger than
+//! its FIFO. Such frames leave with a bad checksum and the receiver drops them: on the bench the
+//! deck's 540-byte `ADD-DEVICE` never reached Companion, while every ACK did.
+//! [`SoftwareTxChecksums`] has smoltcp compute transmit checksums instead; the MAC leaves a
+//! correct checksum alone.
 
+use core::task::Context;
 use embassy_executor::Spawner;
 use embassy_net::{Runner, Stack, StackResources};
+use embassy_net_driver::{Capabilities, Checksum, HardwareAddress, LinkState};
 use embassy_time::{Duration, Timer};
 use esp_hal::Async;
 use esp_hal::ethernet::clock::ExternalRefClock;
@@ -26,7 +35,7 @@ const SOCKETS: usize = 3;
 /// How long the PHY's reset is held low. The IP101GRI needs at least 10 ms.
 const PHY_RESET_TIME: Duration = Duration::from_millis(20);
 
-type Driver = Ethernet<'static, Async, GenericPhy>;
+type Driver = SoftwareTxChecksums<Ethernet<'static, Async, GenericPhy>>;
 
 /// The RMII and PHY-reset pins as the P4-ETH schematic wires them; they are also esp-hal's
 /// defaults for the ESP32-P4.
@@ -82,6 +91,7 @@ pub async fn start(
     )
     .expect("Ethernet init failed: is the PHY out of reset?")
     .into_async();
+    let driver = SoftwareTxChecksums(driver);
 
     let rng = Rng::new();
     let seed = (u64::from(rng.random()) << 32) | u64::from(rng.random());
@@ -116,5 +126,45 @@ async fn link_log_task(stack: Stack<'static>) {
         }
         stack.wait_link_down().await;
         warn!("Ethernet link down");
+    }
+}
+
+/// Passes a driver through, but has smoltcp compute transmit checksums rather than trusting
+/// the MAC to insert them (see the module docs). Receive checks stay with the hardware.
+struct SoftwareTxChecksums<D>(D);
+
+impl<D: embassy_net_driver::Driver> embassy_net_driver::Driver for SoftwareTxChecksums<D> {
+    type RxToken<'a>
+        = D::RxToken<'a>
+    where
+        Self: 'a;
+    type TxToken<'a>
+        = D::TxToken<'a>
+    where
+        Self: 'a;
+
+    fn receive(&mut self, cx: &mut Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
+        self.0.receive(cx)
+    }
+
+    fn transmit(&mut self, cx: &mut Context) -> Option<Self::TxToken<'_>> {
+        self.0.transmit(cx)
+    }
+
+    fn link_state(&mut self, cx: &mut Context) -> LinkState {
+        self.0.link_state(cx)
+    }
+
+    fn capabilities(&self) -> Capabilities {
+        let mut caps = self.0.capabilities();
+        caps.checksum.ipv4 = Checksum::Tx;
+        caps.checksum.tcp = Checksum::Tx;
+        caps.checksum.udp = Checksum::Tx;
+        caps.checksum.icmpv4 = Checksum::Tx;
+        caps
+    }
+
+    fn hardware_address(&self) -> HardwareAddress {
+        self.0.hardware_address()
     }
 }

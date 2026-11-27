@@ -25,6 +25,7 @@ log = "0.4.27"
 
 esp-radio = { version = "=1.0.0-beta.1", features = ["esp-alloc", "log-04", "unstable", "wifi"], optional = true }
 embassy-net = { version = "0.9.1", features = ["dhcpv4", "dns", "log", "medium-ethernet", "tcp"] }
+embassy-net-driver = { version = "0.2", optional = true }
 embassy-sync = "0.8"
 embassy-futures = "0.1"
 embedded-io-async = "0.7"
@@ -52,6 +53,7 @@ board-feather = [
 ]
 # Waveshare ESP32-P4-ETH, Ethernet. Build with `cargo p4-build` (see .cargo/config.toml).
 board-p4-eth = [
+  "dep:embassy-net-driver",
   "esp-alloc/esp32p4",
   "esp-backtrace/esp32p4",
   "esp-bootloader-esp-idf/esp32p4",

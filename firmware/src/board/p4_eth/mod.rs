@@ -89,9 +89,12 @@ impl Board {
             intb: Input::new(p.GPIO26, module_input),
             // With nothing on it, the pull-up keeps it quiet (THI-89 KTD5).
             reference: Input::new(p.GPIO27, InputConfig::default().with_pull(Pull::Up)),
+            // The phases interrupt on every edge, so they must not float when the encoder
+            // module is unplugged: noise on an open input floods the GPIO interrupt and stalls
+            // the firmware. The module's own 10 kΩ pull-ups sit in parallel.
             encoder: Encoder {
-                phase_a: Input::new(p.GPIO32, module_input),
-                phase_b: Input::new(p.GPIO33, module_input),
+                phase_a: Input::new(p.GPIO32, InputConfig::default().with_pull(Pull::Up)),
+                phase_b: Input::new(p.GPIO33, InputConfig::default().with_pull(Pull::Up)),
             },
             console_rx,
             network: Network {
