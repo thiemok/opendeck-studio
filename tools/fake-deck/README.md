@@ -7,14 +7,15 @@ Requires Node 24+ (runs the TypeScript directly) and Docker.
 ## 1. Start Companion
 
 ```bash
-docker compose up -d          # Companion v5.1.3, pinned in compose.yaml
+npm ci                         # once per worktree
+npm run companion              # docker compose up -d, then loads the test layout into a fresh Companion
 ```
 
 | What | Where |
 |---|---|
 | Web UI | http://localhost:18000 |
 | Satellite TCP | `localhost:26622` (container port 16622) |
-| Config/data | `./companion-data/` (gitignored) |
+| Config/data | Docker volume `opendeck-companion-data`, shared by all worktrees |
 
 The ports are remapped so this never clashes with a Companion already running on the desktop. Satellite TCP is on by default.
 
@@ -22,11 +23,25 @@ Verified on 2026-11-13: `BEGIN CompanionVersion="5.1.3+10036-stable-93ea3fa61c" 
 
 ### Load the test buttons
 
-1. Finish the first-run wizard in the web UI.
-2. **Variables → Custom Variables**: create a variable named `count`.
-3. **Import / Export → Import configuration**: pick `companion-config/fake-deck-page.companionconfig`, then **Replace page 1 with imported page**. For the hardware deck, pick `companion-config/hardware-deck-page.companionconfig` instead: the same buttons one column to the right (`0/1` key A, `0/2` key B, `0/3` encoder). There the keys count their own presses in a second custom variable, `presses` (create it too), so a turn redraws only the OLED and a press only the keys.
+`npm run companion` waits for Companion to come up. If its data is fresh (the first-run wizard was never done), it seeds it: it marks the wizard done with Companion's defaults, creates the custom variables `count` and `presses`, and imports the hardware deck page. A Companion that is already set up is left alone.
 
-Page 1, row 0 then holds:
+Companion's data lives in the named Docker volume `opendeck-companion-data`, not in the worktree. Every worktree's `docker compose up -d` uses the same container and the same volume, so a new worktree finds Companion already set up, with the pages and variables it had before. The seed runs once per volume. To start over, stop Companion and remove the volume: `docker compose down && docker volume rm opendeck-companion-data`, then `npm run companion`.
+
+Because the data is shared, a page you change in one worktree is changed for all of them.
+
+To load a different layout, or to put a page back after editing it, run the seed directly. It replaces the layout's pages each time:
+
+```bash
+npm run seed                      # hardware deck page on page 1 (default)
+npm run seed -- --layout fake     # the fake deck's page on page 1
+npm run seed -- --layout bench    # the two bench pages on pages 1 and 2
+```
+
+The seed script (`src/seed-companion.ts`) uses the same WebSocket API as Companion's web UI, because Companion has no HTTP endpoint for imports. Those procedure names are internal to Companion and match the version pinned in `compose.yaml`. After bumping the image, run `npm run seed` once to check that it still works.
+
+To load a page by hand instead: finish the first-run wizard, create the custom variables `count` and `presses` under **Variables → Custom Variables**, then **Import / Export → Import configuration**, pick a file from `companion-config/` and choose **Replace page 1 with imported page**. The hardware page (`hardware-deck-page.companionconfig`) holds the same buttons as the fake deck's page, one column to the right (`0/1` key A, `0/2` key B, `0/3` encoder). Its keys count their own presses in `presses`, so a turn redraws only the OLED and a press only the keys.
+
+With `--layout fake`, page 1, row 0 holds:
 
 | Control | Shows | Press | Rotate |
 |---|---|---|---|
@@ -38,7 +53,7 @@ All three controls show `count`, so any input visibly changes every image. `comp
 
 ### Bench pages (THI-76, THI-85)
 
-`bench-page-1.companionconfig` and `bench-page-2.companionconfig` fill all 32 positions of the 8×4 grid for measuring page changes with the firmware's `bench 16|32` surface. Import the first with **Replace page 1 with imported page**, then the second as **[ Insert new page ]** so it becomes page 2. On both pages `0/0` is Companion's page up and `0/1` its page down. Every other button has its own colour and `P<page> <row>/<column>` text, and each one changes between the pages, so a page change redraws every key. A 16-key surface shows rows 0–1 of the same pages. Pressing `0/0` and `0/1` alternately moves between the two pages and never onto an empty page 3.
+`bench-page-1.companionconfig` and `bench-page-2.companionconfig` fill all 32 positions of the 8×4 grid for measuring page changes with the firmware's `bench 16|32` surface. `npm run seed -- --layout bench` loads both. By hand, import the first with **Replace page 1 with imported page**, then the second as **[ Insert new page ]** so it becomes page 2. On both pages `0/0` is Companion's page up and `0/1` its page down. Every other button has its own colour and `P<page> <row>/<column>` text, and each one changes between the pages, so a page change redraws every key. A 16-key surface shows rows 0–1 of the same pages. Pressing `0/0` and `0/1` alternately moves between the two pages and never onto an empty page 3.
 
 ### Companion MCP (optional)
 

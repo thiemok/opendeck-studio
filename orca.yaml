@@ -34,8 +34,7 @@ scripts:
       echo "WARNING: firmware/wifi.env is a placeholder; put real credentials in it before flashing"
     fi
 
-    # The P0 fake-deck test bench (CI runs its tests too). Create Companion's data
-    # directory as the user: if Docker creates it, it is root-owned and the
-    # container exits with EACCES.
+    # The P0 fake-deck test bench (CI runs its tests too). Companion keeps its data in
+    # the shared Docker volume opendeck-companion-data, so a new worktree needs no setup
+    # for it; `npm run companion` starts it and seeds it only when the volume is fresh.
     (cd tools/fake-deck && npm ci)
-    mkdir -p tools/fake-deck/companion-data

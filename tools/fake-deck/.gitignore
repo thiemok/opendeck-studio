@@ -1,3 +1,4 @@
 node_modules/
 out/
+# Bind-mount data from before the opendeck-companion-data volume, still in older worktrees
 companion-data/

@@ -10,4 +10,11 @@ services:
       - "18000:8000"   # web UI  -> http://localhost:18000
       - "26622:16622"  # Satellite TCP
     volumes:
-      - ./companion-data:/companion
+      - companion-data:/companion
+
+# A named volume, not a directory in the worktree: every worktree's `docker compose up` reuses the
+# same Companion data, so a new worktree needs no reseed. `docker volume rm opendeck-companion-data`
+# (with the container stopped) starts over, and `npm run companion` then seeds the fresh instance.
+volumes:
+  companion-data:
+    name: opendeck-companion-data
