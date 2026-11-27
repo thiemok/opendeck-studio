@@ -2,7 +2,7 @@
 
 A self-built network control deck in the spirit of the Stream Deck Studio. It appears in [Bitfocus Companion](https://bitfocus.io/companion) as a surface over the Satellite protocol. Companion runs on a Linux desktop or server, and the deck only shows images and reports input.
 
-Current phase: proof of concept on Wi-Fi with off-the-shelf parts (two ST7735 LCD keys, a 1.3" OLED with rotary encoder, on a Feather ESP32 V2 running Rust no_std firmware). Ethernet/PoE, scaling toward ~32 keys and a custom PCB come after the final-shape decision.
+Current phase: proof of concept with off-the-shelf parts (two ST7735 LCD keys, a 1.3" OLED with rotary encoder) running Rust no_std firmware. One codebase builds for a Feather ESP32 V2 on Wi-Fi and a Waveshare ESP32-P4-ETH on wired Ethernet and PoE (THI-84). Scaling toward ~32 keys and a custom PCB come after the final-shape decision.
 
 Case models (the THI-82 desk mock-ups so far) are built from parameters in [`cad/`](cad/README.md).
 
@@ -23,7 +23,7 @@ Every PR to `main`, and every push to it, runs these jobs in [`.github/workflows
 | Job | Runs | Local commands |
 |---|---|---|
 | `deck-core` | `cargo fmt --check`, `cargo clippy --locked --all-targets -- -D warnings`, `cargo test --locked` at the repo root | `mise exec -- cargo …` at the repo root |
-| `firmware` | `cargo fmt --check`, `cargo build --release --locked`, `cargo clippy --release --locked -- -D warnings` in `firmware/` | [`firmware/README.md`](firmware/README.md#checks) |
+| `firmware` | `cargo fmt --check`, then release build and clippy for both boards (`cargo build --release --locked`, `cargo clippy …`, `cargo p4-build`, `cargo p4-clippy`) in `firmware/` | [`firmware/README.md`](firmware/README.md#checks) |
 | `fake-deck` | `npm test`, `npm run typecheck` in `tools/fake-deck/` | [`tools/fake-deck/README.md`](tools/fake-deck/README.md) |
 | `case` | `pytest` in `cad/`, through uv | `mise run case-test` ([`cad/README.md`](cad/README.md)) |
 

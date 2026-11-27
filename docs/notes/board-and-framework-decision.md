@@ -75,6 +75,8 @@ Both boards were judged on the R15 criteria. Boards that failed a gate (OTA, Sat
 
 ## Wired Ethernet/PoE path (later stages)
 
+> **Update, 2026-11-27 (THI-84):** the wired board is now the Waveshare ESP32-P4-ETH, not an ESP32 PoE board. The Olimex ESP32-POE2 doesn't fit under the side section, and the P4-ETH has more free pins. It uses esp-hal's own Ethernet driver, which supports the ESP32-P4 in the esp-hal version already pinned, so none of the routes below is needed. The firmware builds for both boards ([plan](../plans/2026-11-27-1330-feat-esp32-p4-eth-port-plan.md), [bench note](p4-eth-bench.md)).
+
 Once the final shape is decided, these are the routes in order of preference:
 
 1. **Native EMAC + LAN8720** on an ESP32 PoE board such as the Olimex ESP32-POE2 or ESP32-POE-ISO (WROVER variants have PSRAM). Use the community crates [`esp-emac`](https://github.com/jethub-iot/esp-emac-rs) + [`eth-phy-lan87xx`](https://github.com/jethub-iot/eth-phy-rs), which target esp-hal 1.1 / embassy-net 0.9 and include a DHCP example, or [`ph-esp32-mac`](https://github.com/photon-circus/ph-esp32-mac), which is tested on a WT32-ETH01. esp-hal lists in-tree Ethernet for the ESP32 as work in progress.
