@@ -2,7 +2,7 @@
 
 Does the PoC deck run on the Waveshare ESP32-P4-ETH over wired Ethernet, powered over PoE? And does the board fit under the side section, for THI-83? This note holds the runbook, the numbers and the recommendation. The plan is [2026-11-27-1330-feat-esp32-p4-eth-port-plan.md](../plans/2026-11-27-1330-feat-esp32-p4-eth-port-plan.md), and the wiring is in [deck-wiring.md](deck-wiring.md) (ESP32-P4-ETH column).
 
-> **Status:** waves 1 and 2 run on 2026-11-27 (PR #11). Steps 1, 2 and 3 pass, step 2 after two firmware fixes recorded below. The steps that need the PoC bench, PoE or the Feather are still to do.
+> **Status:** waves 1 and 2 run on 2026-11-27 (PR #11). Steps 1, 2, 3 and 5 pass, step 2 after two firmware fixes recorded below; step 6 has a bare-board reading only. The steps that need the PoC bench, PoE or the Feather are still to do.
 
 ## What the desk research settled
 
@@ -42,6 +42,9 @@ Companion 5.1.3 ran in `tools/fake-deck` on a laptop on the same subnet, over Wi
 | Step | Result |
 |---|---|
 | 2. Ethernet and Companion | **Pass, after two fixes.** The link comes up about 5 s after boot and DHCP gives `192.168.201.78/24`. The deck registers as `opendeck-80f1b2dae508` (the factory MAC), switches to `png`, and decodes all three key images. After unplugging and replugging the cable, Companion logged the disconnect and the deck re-registered 10 s later, within the firmware's socket timeout and reconnect back-off. |
+
+| 5. PoE only | **Pass (bare board).** With USB-C unplugged, the board ran on the PoE module alone: Companion logged no disconnect, so the deck stayed registered through the unplug and the replug. |
+| 6. PoE draw | **Bare board only: 0.7 W**, with the switch (UniFi) reporting the port as PoE++ (802.3bt). No ScreenKeys, backlights, OLED or expander were wired, so the full-bench draw and its comparison with the module's rating are still to do. |
 
 Two firmware bugs showed up and are fixed:
 
